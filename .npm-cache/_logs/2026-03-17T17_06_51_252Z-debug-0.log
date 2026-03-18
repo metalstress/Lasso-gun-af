@@ -1,0 +1,454 @@
+0 verbose cli C:\Program Files\nodejs\node.exe C:\Program Files\nodejs\node_modules\npm\bin\npm-cli.js
+1 info using npm@10.9.3
+2 info using node@v22.18.0
+3 silly config load:file:C:\Program Files\nodejs\node_modules\npm\npmrc
+4 silly config load:file:C:\Users\mikha\Documents\Codex playground\.npmrc
+5 silly config load:file:C:\Users\mikha\.npmrc
+6 silly config load:file:C:\Users\mikha\AppData\Roaming\npm\etc\npmrc
+7 verbose title npm install polygon-clipping
+8 verbose argv "install" "polygon-clipping" "--cache" ".npm-cache"
+9 verbose logfile logs-max:10 dir:C:\Users\mikha\Documents\Codex playground\.npm-cache\_logs\2026-03-17T17_06_51_252Z-
+10 verbose logfile C:\Users\mikha\Documents\Codex playground\.npm-cache\_logs\2026-03-17T17_06_51_252Z-debug-0.log
+11 silly logfile done cleaning log files
+12 silly packumentCache heap:4345298944 maxSize:1086324736 maxEntrySize:543162368
+13 silly idealTree buildDeps
+14 silly fetch manifest polygon-clipping@*
+15 silly packumentCache full:https://registry.npmjs.org/polygon-clipping cache-miss
+16 http fetch GET 200 https://registry.npmjs.org/polygon-clipping 487ms (cache miss)
+17 silly packumentCache full:https://registry.npmjs.org/polygon-clipping set size:undefined disposed:false
+18 silly placeDep ROOT polygon-clipping@0.15.7 OK for: dual-point-lasso@0.0.0 want: *
+19 silly fetch manifest robust-predicates@^3.0.2
+20 silly packumentCache full:https://registry.npmjs.org/robust-predicates cache-miss
+21 silly fetch manifest splaytree@^3.1.0
+22 silly packumentCache full:https://registry.npmjs.org/splaytree cache-miss
+23 http fetch GET 200 https://registry.npmjs.org/robust-predicates 55ms (cache miss)
+24 silly packumentCache full:https://registry.npmjs.org/robust-predicates set size:undefined disposed:false
+25 http fetch GET 200 https://registry.npmjs.org/splaytree 419ms (cache miss)
+26 silly packumentCache full:https://registry.npmjs.org/splaytree set size:undefined disposed:false
+27 silly placeDep ROOT robust-predicates@3.0.2 OK for: polygon-clipping@0.15.7 want: ^3.0.2
+28 silly placeDep ROOT splaytree@3.2.3 OK for: polygon-clipping@0.15.7 want: ^3.1.0
+29 silly reify moves {}
+30 silly audit bulk request {
+30 silly audit   '@babel/code-frame': [ '7.29.0' ],
+30 silly audit   '@babel/compat-data': [ '7.29.0' ],
+30 silly audit   '@babel/core': [ '7.29.0' ],
+30 silly audit   '@babel/generator': [ '7.29.1' ],
+30 silly audit   '@babel/helper-compilation-targets': [ '7.28.6' ],
+30 silly audit   '@babel/helper-globals': [ '7.28.0' ],
+30 silly audit   '@babel/helper-module-imports': [ '7.28.6' ],
+30 silly audit   '@babel/helper-module-transforms': [ '7.28.6' ],
+30 silly audit   '@babel/helper-plugin-utils': [ '7.28.6' ],
+30 silly audit   '@babel/helper-string-parser': [ '7.27.1' ],
+30 silly audit   '@babel/helper-validator-identifier': [ '7.28.5' ],
+30 silly audit   '@babel/helper-validator-option': [ '7.27.1' ],
+30 silly audit   '@babel/helpers': [ '7.29.2' ],
+30 silly audit   '@babel/parser': [ '7.29.2' ],
+30 silly audit   '@babel/plugin-transform-react-jsx-self': [ '7.27.1' ],
+30 silly audit   '@babel/plugin-transform-react-jsx-source': [ '7.27.1' ],
+30 silly audit   '@babel/template': [ '7.28.6' ],
+30 silly audit   '@babel/traverse': [ '7.29.0' ],
+30 silly audit   '@babel/types': [ '7.29.0' ],
+30 silly audit   '@esbuild/aix-ppc64': [ '0.21.5' ],
+30 silly audit   '@esbuild/android-arm': [ '0.21.5' ],
+30 silly audit   '@esbuild/android-arm64': [ '0.21.5' ],
+30 silly audit   '@esbuild/android-x64': [ '0.21.5' ],
+30 silly audit   '@esbuild/darwin-arm64': [ '0.21.5' ],
+30 silly audit   '@esbuild/darwin-x64': [ '0.21.5' ],
+30 silly audit   '@esbuild/freebsd-arm64': [ '0.21.5' ],
+30 silly audit   '@esbuild/freebsd-x64': [ '0.21.5' ],
+30 silly audit   '@esbuild/linux-arm': [ '0.21.5' ],
+30 silly audit   '@esbuild/linux-arm64': [ '0.21.5' ],
+30 silly audit   '@esbuild/linux-ia32': [ '0.21.5' ],
+30 silly audit   '@esbuild/linux-loong64': [ '0.21.5' ],
+30 silly audit   '@esbuild/linux-mips64el': [ '0.21.5' ],
+30 silly audit   '@esbuild/linux-ppc64': [ '0.21.5' ],
+30 silly audit   '@esbuild/linux-riscv64': [ '0.21.5' ],
+30 silly audit   '@esbuild/linux-s390x': [ '0.21.5' ],
+30 silly audit   '@esbuild/linux-x64': [ '0.21.5' ],
+30 silly audit   '@esbuild/netbsd-x64': [ '0.21.5' ],
+30 silly audit   '@esbuild/openbsd-x64': [ '0.21.5' ],
+30 silly audit   '@esbuild/sunos-x64': [ '0.21.5' ],
+30 silly audit   '@esbuild/win32-arm64': [ '0.21.5' ],
+30 silly audit   '@esbuild/win32-ia32': [ '0.21.5' ],
+30 silly audit   '@esbuild/win32-x64': [ '0.21.5' ],
+30 silly audit   '@jridgewell/gen-mapping': [ '0.3.13' ],
+30 silly audit   '@jridgewell/remapping': [ '2.3.5' ],
+30 silly audit   '@jridgewell/resolve-uri': [ '3.1.2' ],
+30 silly audit   '@jridgewell/sourcemap-codec': [ '1.5.5' ],
+30 silly audit   '@jridgewell/trace-mapping': [ '0.3.31' ],
+30 silly audit   '@rolldown/pluginutils': [ '1.0.0-beta.27' ],
+30 silly audit   '@rollup/rollup-android-arm-eabi': [ '4.59.0' ],
+30 silly audit   '@rollup/rollup-android-arm64': [ '4.59.0' ],
+30 silly audit   '@rollup/rollup-darwin-arm64': [ '4.59.0' ],
+30 silly audit   '@rollup/rollup-darwin-x64': [ '4.59.0' ],
+30 silly audit   '@rollup/rollup-freebsd-arm64': [ '4.59.0' ],
+30 silly audit   '@rollup/rollup-freebsd-x64': [ '4.59.0' ],
+30 silly audit   '@rollup/rollup-linux-arm-gnueabihf': [ '4.59.0' ],
+30 silly audit   '@rollup/rollup-linux-arm-musleabihf': [ '4.59.0' ],
+30 silly audit   '@rollup/rollup-linux-arm64-gnu': [ '4.59.0' ],
+30 silly audit   '@rollup/rollup-linux-arm64-musl': [ '4.59.0' ],
+30 silly audit   '@rollup/rollup-linux-loong64-gnu': [ '4.59.0' ],
+30 silly audit   '@rollup/rollup-linux-loong64-musl': [ '4.59.0' ],
+30 silly audit   '@rollup/rollup-linux-ppc64-gnu': [ '4.59.0' ],
+30 silly audit   '@rollup/rollup-linux-ppc64-musl': [ '4.59.0' ],
+30 silly audit   '@rollup/rollup-linux-riscv64-gnu': [ '4.59.0' ],
+30 silly audit   '@rollup/rollup-linux-riscv64-musl': [ '4.59.0' ],
+30 silly audit   '@rollup/rollup-linux-s390x-gnu': [ '4.59.0' ],
+30 silly audit   '@rollup/rollup-linux-x64-gnu': [ '4.59.0' ],
+30 silly audit   '@rollup/rollup-linux-x64-musl': [ '4.59.0' ],
+30 silly audit   '@rollup/rollup-openbsd-x64': [ '4.59.0' ],
+30 silly audit   '@rollup/rollup-openharmony-arm64': [ '4.59.0' ],
+30 silly audit   '@rollup/rollup-win32-arm64-msvc': [ '4.59.0' ],
+30 silly audit   '@rollup/rollup-win32-ia32-msvc': [ '4.59.0' ],
+30 silly audit   '@rollup/rollup-win32-x64-gnu': [ '4.59.0' ],
+30 silly audit   '@rollup/rollup-win32-x64-msvc': [ '4.59.0' ],
+30 silly audit   '@types/babel__core': [ '7.20.5' ],
+30 silly audit   '@types/babel__generator': [ '7.27.0' ],
+30 silly audit   '@types/babel__template': [ '7.4.4' ],
+30 silly audit   '@types/babel__traverse': [ '7.28.0' ],
+30 silly audit   '@types/estree': [ '1.0.8' ],
+30 silly audit   '@vitejs/plugin-react': [ '4.7.0' ],
+30 silly audit   '@vitest/expect': [ '2.1.9' ],
+30 silly audit   '@vitest/mocker': [ '2.1.9' ],
+30 silly audit   '@vitest/pretty-format': [ '2.1.9' ],
+30 silly audit   '@vitest/runner': [ '2.1.9' ],
+30 silly audit   '@vitest/snapshot': [ '2.1.9' ],
+30 silly audit   '@vitest/spy': [ '2.1.9' ],
+30 silly audit   '@vitest/utils': [ '2.1.9' ],
+30 silly audit   'assertion-error': [ '2.0.1' ],
+30 silly audit   'baseline-browser-mapping': [ '2.10.8' ],
+30 silly audit   browserslist: [ '4.28.1' ],
+30 silly audit   cac: [ '6.7.14' ],
+30 silly audit   'caniuse-lite': [ '1.0.30001780' ],
+30 silly audit   chai: [ '5.3.3' ],
+30 silly audit   'check-error': [ '2.1.3' ],
+30 silly audit   'convert-source-map': [ '2.0.0' ],
+30 silly audit   debug: [ '4.4.3' ],
+30 silly audit   'deep-eql': [ '5.0.2' ],
+30 silly audit   'electron-to-chromium': [ '1.5.313' ],
+30 silly audit   'es-module-lexer': [ '1.7.0' ],
+30 silly audit   esbuild: [ '0.21.5' ],
+30 silly audit   escalade: [ '3.2.0' ],
+30 silly audit   'estree-walker': [ '3.0.3' ],
+30 silly audit   'expect-type': [ '1.3.0' ],
+30 silly audit   fsevents: [ '2.3.3' ],
+30 silly audit   gensync: [ '1.0.0-beta.2' ],
+30 silly audit   'js-tokens': [ '4.0.0' ],
+30 silly audit   jsesc: [ '3.1.0' ],
+30 silly audit   json5: [ '2.2.3' ],
+30 silly audit   'loose-envify': [ '1.4.0' ],
+30 silly audit   loupe: [ '3.2.1' ],
+30 silly audit   'lru-cache': [ '5.1.1' ],
+30 silly audit   'magic-string': [ '0.30.21' ],
+30 silly audit   ms: [ '2.1.3' ],
+30 silly audit   nanoid: [ '3.3.11' ],
+30 silly audit   'node-releases': [ '2.0.36' ],
+30 silly audit   pathe: [ '1.1.2' ],
+30 silly audit   pathval: [ '2.0.1' ],
+30 silly audit   picocolors: [ '1.1.1' ],
+30 silly audit   postcss: [ '8.5.8' ],
+30 silly audit   react: [ '18.3.1' ],
+30 silly audit   'react-dom': [ '18.3.1' ],
+30 silly audit   'react-refresh': [ '0.17.0' ],
+30 silly audit   rollup: [ '4.59.0' ],
+30 silly audit   scheduler: [ '0.23.2' ],
+30 silly audit   semver: [ '6.3.1' ],
+30 silly audit   siginfo: [ '2.0.0' ],
+30 silly audit   'source-map-js': [ '1.2.1' ],
+30 silly audit   stackback: [ '0.0.2' ],
+30 silly audit   'std-env': [ '3.10.0' ],
+30 silly audit   tinybench: [ '2.9.0' ],
+30 silly audit   tinyexec: [ '0.3.2' ],
+30 silly audit   tinypool: [ '1.1.1' ],
+30 silly audit   tinyrainbow: [ '1.2.0' ],
+30 silly audit   tinyspy: [ '3.0.2' ],
+30 silly audit   'update-browserslist-db': [ '1.2.3' ],
+30 silly audit   vite: [ '5.4.21' ],
+30 silly audit   'vite-node': [ '2.1.9' ],
+30 silly audit   vitest: [ '2.1.9' ],
+30 silly audit   'why-is-node-running': [ '2.3.0' ],
+30 silly audit   yallist: [ '3.1.1' ],
+30 silly audit   'polygon-clipping': [ '0.15.7' ],
+30 silly audit   'robust-predicates': [ '3.0.2' ],
+30 silly audit   splaytree: [ '3.2.3' ]
+30 silly audit }
+31 verbose reify failed optional dependency C:\Users\mikha\Documents\Codex playground\node_modules\fsevents
+32 silly reify mark deleted [
+32 silly reify   'C:\\Users\\mikha\\Documents\\Codex playground\\node_modules\\fsevents'
+32 silly reify ]
+33 verbose reify failed optional dependency C:\Users\mikha\Documents\Codex playground\node_modules\@rollup\rollup-win32-ia32-msvc
+34 silly reify mark deleted [
+34 silly reify   'C:\\Users\\mikha\\Documents\\Codex playground\\node_modules\\@rollup\\rollup-win32-ia32-msvc'
+34 silly reify ]
+35 verbose reify failed optional dependency C:\Users\mikha\Documents\Codex playground\node_modules\@rollup\rollup-win32-arm64-msvc
+36 silly reify mark deleted [
+36 silly reify   'C:\\Users\\mikha\\Documents\\Codex playground\\node_modules\\@rollup\\rollup-win32-arm64-msvc'
+36 silly reify ]
+37 verbose reify failed optional dependency C:\Users\mikha\Documents\Codex playground\node_modules\@rollup\rollup-openharmony-arm64
+38 silly reify mark deleted [
+38 silly reify   'C:\\Users\\mikha\\Documents\\Codex playground\\node_modules\\@rollup\\rollup-openharmony-arm64'
+38 silly reify ]
+39 verbose reify failed optional dependency C:\Users\mikha\Documents\Codex playground\node_modules\@rollup\rollup-openbsd-x64
+40 silly reify mark deleted [
+40 silly reify   'C:\\Users\\mikha\\Documents\\Codex playground\\node_modules\\@rollup\\rollup-openbsd-x64'
+40 silly reify ]
+41 verbose reify failed optional dependency C:\Users\mikha\Documents\Codex playground\node_modules\@rollup\rollup-linux-x64-musl
+42 silly reify mark deleted [
+42 silly reify   'C:\\Users\\mikha\\Documents\\Codex playground\\node_modules\\@rollup\\rollup-linux-x64-musl'
+42 silly reify ]
+43 verbose reify failed optional dependency C:\Users\mikha\Documents\Codex playground\node_modules\@rollup\rollup-linux-x64-gnu
+44 silly reify mark deleted [
+44 silly reify   'C:\\Users\\mikha\\Documents\\Codex playground\\node_modules\\@rollup\\rollup-linux-x64-gnu'
+44 silly reify ]
+45 verbose reify failed optional dependency C:\Users\mikha\Documents\Codex playground\node_modules\@rollup\rollup-linux-s390x-gnu
+46 silly reify mark deleted [
+46 silly reify   'C:\\Users\\mikha\\Documents\\Codex playground\\node_modules\\@rollup\\rollup-linux-s390x-gnu'
+46 silly reify ]
+47 verbose reify failed optional dependency C:\Users\mikha\Documents\Codex playground\node_modules\@rollup\rollup-linux-riscv64-musl
+48 silly reify mark deleted [
+48 silly reify   'C:\\Users\\mikha\\Documents\\Codex playground\\node_modules\\@rollup\\rollup-linux-riscv64-musl'
+48 silly reify ]
+49 verbose reify failed optional dependency C:\Users\mikha\Documents\Codex playground\node_modules\@rollup\rollup-linux-riscv64-gnu
+50 silly reify mark deleted [
+50 silly reify   'C:\\Users\\mikha\\Documents\\Codex playground\\node_modules\\@rollup\\rollup-linux-riscv64-gnu'
+50 silly reify ]
+51 verbose reify failed optional dependency C:\Users\mikha\Documents\Codex playground\node_modules\@rollup\rollup-linux-ppc64-musl
+52 silly reify mark deleted [
+52 silly reify   'C:\\Users\\mikha\\Documents\\Codex playground\\node_modules\\@rollup\\rollup-linux-ppc64-musl'
+52 silly reify ]
+53 verbose reify failed optional dependency C:\Users\mikha\Documents\Codex playground\node_modules\@rollup\rollup-linux-ppc64-gnu
+54 silly reify mark deleted [
+54 silly reify   'C:\\Users\\mikha\\Documents\\Codex playground\\node_modules\\@rollup\\rollup-linux-ppc64-gnu'
+54 silly reify ]
+55 verbose reify failed optional dependency C:\Users\mikha\Documents\Codex playground\node_modules\@rollup\rollup-linux-loong64-musl
+56 silly reify mark deleted [
+56 silly reify   'C:\\Users\\mikha\\Documents\\Codex playground\\node_modules\\@rollup\\rollup-linux-loong64-musl'
+56 silly reify ]
+57 verbose reify failed optional dependency C:\Users\mikha\Documents\Codex playground\node_modules\@rollup\rollup-linux-loong64-gnu
+58 silly reify mark deleted [
+58 silly reify   'C:\\Users\\mikha\\Documents\\Codex playground\\node_modules\\@rollup\\rollup-linux-loong64-gnu'
+58 silly reify ]
+59 verbose reify failed optional dependency C:\Users\mikha\Documents\Codex playground\node_modules\@rollup\rollup-linux-arm64-musl
+60 silly reify mark deleted [
+60 silly reify   'C:\\Users\\mikha\\Documents\\Codex playground\\node_modules\\@rollup\\rollup-linux-arm64-musl'
+60 silly reify ]
+61 verbose reify failed optional dependency C:\Users\mikha\Documents\Codex playground\node_modules\@rollup\rollup-linux-arm64-gnu
+62 silly reify mark deleted [
+62 silly reify   'C:\\Users\\mikha\\Documents\\Codex playground\\node_modules\\@rollup\\rollup-linux-arm64-gnu'
+62 silly reify ]
+63 verbose reify failed optional dependency C:\Users\mikha\Documents\Codex playground\node_modules\@rollup\rollup-linux-arm-musleabihf
+64 silly reify mark deleted [
+64 silly reify   'C:\\Users\\mikha\\Documents\\Codex playground\\node_modules\\@rollup\\rollup-linux-arm-musleabihf'
+64 silly reify ]
+65 verbose reify failed optional dependency C:\Users\mikha\Documents\Codex playground\node_modules\@rollup\rollup-linux-arm-gnueabihf
+66 silly reify mark deleted [
+66 silly reify   'C:\\Users\\mikha\\Documents\\Codex playground\\node_modules\\@rollup\\rollup-linux-arm-gnueabihf'
+66 silly reify ]
+67 verbose reify failed optional dependency C:\Users\mikha\Documents\Codex playground\node_modules\@rollup\rollup-freebsd-x64
+68 silly reify mark deleted [
+68 silly reify   'C:\\Users\\mikha\\Documents\\Codex playground\\node_modules\\@rollup\\rollup-freebsd-x64'
+68 silly reify ]
+69 verbose reify failed optional dependency C:\Users\mikha\Documents\Codex playground\node_modules\@rollup\rollup-freebsd-arm64
+70 silly reify mark deleted [
+70 silly reify   'C:\\Users\\mikha\\Documents\\Codex playground\\node_modules\\@rollup\\rollup-freebsd-arm64'
+70 silly reify ]
+71 verbose reify failed optional dependency C:\Users\mikha\Documents\Codex playground\node_modules\@rollup\rollup-darwin-x64
+72 silly reify mark deleted [
+72 silly reify   'C:\\Users\\mikha\\Documents\\Codex playground\\node_modules\\@rollup\\rollup-darwin-x64'
+72 silly reify ]
+73 verbose reify failed optional dependency C:\Users\mikha\Documents\Codex playground\node_modules\@rollup\rollup-darwin-arm64
+74 silly reify mark deleted [
+74 silly reify   'C:\\Users\\mikha\\Documents\\Codex playground\\node_modules\\@rollup\\rollup-darwin-arm64'
+74 silly reify ]
+75 verbose reify failed optional dependency C:\Users\mikha\Documents\Codex playground\node_modules\@rollup\rollup-android-arm64
+76 silly reify mark deleted [
+76 silly reify   'C:\\Users\\mikha\\Documents\\Codex playground\\node_modules\\@rollup\\rollup-android-arm64'
+76 silly reify ]
+77 verbose reify failed optional dependency C:\Users\mikha\Documents\Codex playground\node_modules\@rollup\rollup-android-arm-eabi
+78 silly reify mark deleted [
+78 silly reify   'C:\\Users\\mikha\\Documents\\Codex playground\\node_modules\\@rollup\\rollup-android-arm-eabi'
+78 silly reify ]
+79 verbose reify failed optional dependency C:\Users\mikha\Documents\Codex playground\node_modules\@esbuild\win32-ia32
+80 silly reify mark deleted [
+80 silly reify   'C:\\Users\\mikha\\Documents\\Codex playground\\node_modules\\@esbuild\\win32-ia32'
+80 silly reify ]
+81 verbose reify failed optional dependency C:\Users\mikha\Documents\Codex playground\node_modules\@esbuild\win32-arm64
+82 silly reify mark deleted [
+82 silly reify   'C:\\Users\\mikha\\Documents\\Codex playground\\node_modules\\@esbuild\\win32-arm64'
+82 silly reify ]
+83 verbose reify failed optional dependency C:\Users\mikha\Documents\Codex playground\node_modules\@esbuild\sunos-x64
+84 silly reify mark deleted [
+84 silly reify   'C:\\Users\\mikha\\Documents\\Codex playground\\node_modules\\@esbuild\\sunos-x64'
+84 silly reify ]
+85 verbose reify failed optional dependency C:\Users\mikha\Documents\Codex playground\node_modules\@esbuild\openbsd-x64
+86 silly reify mark deleted [
+86 silly reify   'C:\\Users\\mikha\\Documents\\Codex playground\\node_modules\\@esbuild\\openbsd-x64'
+86 silly reify ]
+87 verbose reify failed optional dependency C:\Users\mikha\Documents\Codex playground\node_modules\@esbuild\netbsd-x64
+88 silly reify mark deleted [
+88 silly reify   'C:\\Users\\mikha\\Documents\\Codex playground\\node_modules\\@esbuild\\netbsd-x64'
+88 silly reify ]
+89 verbose reify failed optional dependency C:\Users\mikha\Documents\Codex playground\node_modules\@esbuild\linux-x64
+90 silly reify mark deleted [
+90 silly reify   'C:\\Users\\mikha\\Documents\\Codex playground\\node_modules\\@esbuild\\linux-x64'
+90 silly reify ]
+91 verbose reify failed optional dependency C:\Users\mikha\Documents\Codex playground\node_modules\@esbuild\linux-s390x
+92 silly reify mark deleted [
+92 silly reify   'C:\\Users\\mikha\\Documents\\Codex playground\\node_modules\\@esbuild\\linux-s390x'
+92 silly reify ]
+93 verbose reify failed optional dependency C:\Users\mikha\Documents\Codex playground\node_modules\@esbuild\linux-riscv64
+94 silly reify mark deleted [
+94 silly reify   'C:\\Users\\mikha\\Documents\\Codex playground\\node_modules\\@esbuild\\linux-riscv64'
+94 silly reify ]
+95 verbose reify failed optional dependency C:\Users\mikha\Documents\Codex playground\node_modules\@esbuild\linux-ppc64
+96 silly reify mark deleted [
+96 silly reify   'C:\\Users\\mikha\\Documents\\Codex playground\\node_modules\\@esbuild\\linux-ppc64'
+96 silly reify ]
+97 verbose reify failed optional dependency C:\Users\mikha\Documents\Codex playground\node_modules\@esbuild\linux-mips64el
+98 silly reify mark deleted [
+98 silly reify   'C:\\Users\\mikha\\Documents\\Codex playground\\node_modules\\@esbuild\\linux-mips64el'
+98 silly reify ]
+99 verbose reify failed optional dependency C:\Users\mikha\Documents\Codex playground\node_modules\@esbuild\linux-loong64
+100 silly reify mark deleted [
+100 silly reify   'C:\\Users\\mikha\\Documents\\Codex playground\\node_modules\\@esbuild\\linux-loong64'
+100 silly reify ]
+101 verbose reify failed optional dependency C:\Users\mikha\Documents\Codex playground\node_modules\@esbuild\linux-ia32
+102 silly reify mark deleted [
+102 silly reify   'C:\\Users\\mikha\\Documents\\Codex playground\\node_modules\\@esbuild\\linux-ia32'
+102 silly reify ]
+103 verbose reify failed optional dependency C:\Users\mikha\Documents\Codex playground\node_modules\@esbuild\linux-arm64
+104 silly reify mark deleted [
+104 silly reify   'C:\\Users\\mikha\\Documents\\Codex playground\\node_modules\\@esbuild\\linux-arm64'
+104 silly reify ]
+105 verbose reify failed optional dependency C:\Users\mikha\Documents\Codex playground\node_modules\@esbuild\linux-arm
+106 silly reify mark deleted [
+106 silly reify   'C:\\Users\\mikha\\Documents\\Codex playground\\node_modules\\@esbuild\\linux-arm'
+106 silly reify ]
+107 verbose reify failed optional dependency C:\Users\mikha\Documents\Codex playground\node_modules\@esbuild\freebsd-x64
+108 silly reify mark deleted [
+108 silly reify   'C:\\Users\\mikha\\Documents\\Codex playground\\node_modules\\@esbuild\\freebsd-x64'
+108 silly reify ]
+109 verbose reify failed optional dependency C:\Users\mikha\Documents\Codex playground\node_modules\@esbuild\freebsd-arm64
+110 silly reify mark deleted [
+110 silly reify   'C:\\Users\\mikha\\Documents\\Codex playground\\node_modules\\@esbuild\\freebsd-arm64'
+110 silly reify ]
+111 verbose reify failed optional dependency C:\Users\mikha\Documents\Codex playground\node_modules\@esbuild\darwin-x64
+112 silly reify mark deleted [
+112 silly reify   'C:\\Users\\mikha\\Documents\\Codex playground\\node_modules\\@esbuild\\darwin-x64'
+112 silly reify ]
+113 verbose reify failed optional dependency C:\Users\mikha\Documents\Codex playground\node_modules\@esbuild\darwin-arm64
+114 silly reify mark deleted [
+114 silly reify   'C:\\Users\\mikha\\Documents\\Codex playground\\node_modules\\@esbuild\\darwin-arm64'
+114 silly reify ]
+115 verbose reify failed optional dependency C:\Users\mikha\Documents\Codex playground\node_modules\@esbuild\android-x64
+116 silly reify mark deleted [
+116 silly reify   'C:\\Users\\mikha\\Documents\\Codex playground\\node_modules\\@esbuild\\android-x64'
+116 silly reify ]
+117 verbose reify failed optional dependency C:\Users\mikha\Documents\Codex playground\node_modules\@esbuild\android-arm64
+118 silly reify mark deleted [
+118 silly reify   'C:\\Users\\mikha\\Documents\\Codex playground\\node_modules\\@esbuild\\android-arm64'
+118 silly reify ]
+119 verbose reify failed optional dependency C:\Users\mikha\Documents\Codex playground\node_modules\@esbuild\android-arm
+120 silly reify mark deleted [
+120 silly reify   'C:\\Users\\mikha\\Documents\\Codex playground\\node_modules\\@esbuild\\android-arm'
+120 silly reify ]
+121 verbose reify failed optional dependency C:\Users\mikha\Documents\Codex playground\node_modules\@esbuild\aix-ppc64
+122 silly reify mark deleted [
+122 silly reify   'C:\\Users\\mikha\\Documents\\Codex playground\\node_modules\\@esbuild\\aix-ppc64'
+122 silly reify ]
+123 http cache polygon-clipping@https://registry.npmjs.org/polygon-clipping/-/polygon-clipping-0.15.7.tgz 0ms (cache hit)
+124 http cache splaytree@https://registry.npmjs.org/splaytree/-/splaytree-3.2.3.tgz 0ms (cache hit)
+125 http cache robust-predicates@https://registry.npmjs.org/robust-predicates/-/robust-predicates-3.0.2.tgz 0ms (cache hit)
+126 silly tarball no local data for polygon-clipping@https://registry.npmjs.org/polygon-clipping/-/polygon-clipping-0.15.7.tgz. Extracting by manifest.
+127 silly tarball no local data for splaytree@https://registry.npmjs.org/splaytree/-/splaytree-3.2.3.tgz. Extracting by manifest.
+128 silly tarball no local data for robust-predicates@https://registry.npmjs.org/robust-predicates/-/robust-predicates-3.0.2.tgz. Extracting by manifest.
+129 http fetch GET 200 https://registry.npmjs.org/polygon-clipping/-/polygon-clipping-0.15.7.tgz 87ms (cache miss)
+130 http fetch GET 200 https://registry.npmjs.org/splaytree/-/splaytree-3.2.3.tgz 173ms (cache miss)
+131 http fetch GET 200 https://registry.npmjs.org/robust-predicates/-/robust-predicates-3.0.2.tgz 184ms (cache miss)
+132 http fetch POST 200 https://registry.npmjs.org/-/npm/v1/security/advisories/bulk 264ms
+133 silly audit report {
+133 silly audit report   esbuild: [
+133 silly audit report     {
+133 silly audit report       id: 1102341,
+133 silly audit report       url: 'https://github.com/advisories/GHSA-67mh-4wv8-2f99',
+133 silly audit report       title: 'esbuild enables any website to send any requests to the development server and read the response',
+133 silly audit report       severity: 'moderate',
+133 silly audit report       vulnerable_versions: '<=0.24.2',
+133 silly audit report       cwe: [Array],
+133 silly audit report       cvss: [Object]
+133 silly audit report     }
+133 silly audit report   ]
+133 silly audit report }
+134 silly packumentCache corgi:https://registry.npmjs.org/esbuild cache-miss
+135 http fetch GET 200 https://registry.npmjs.org/esbuild 84ms (cache revalidated)
+136 silly packumentCache corgi:https://registry.npmjs.org/esbuild set size:880945 disposed:false
+137 silly packumentCache corgi:https://registry.npmjs.org/vite cache-miss
+138 http fetch GET 200 https://registry.npmjs.org/vite 62ms (cache revalidated)
+139 silly packumentCache corgi:https://registry.npmjs.org/vite set size:2199533 disposed:false
+140 silly packumentCache corgi:https://registry.npmjs.org/@vitejs%2fplugin-react cache-miss
+141 silly packumentCache corgi:https://registry.npmjs.org/@vitest%2fmocker cache-miss
+142 silly packumentCache corgi:https://registry.npmjs.org/vite-node cache-miss
+143 silly packumentCache corgi:https://registry.npmjs.org/vitest cache-miss
+144 http fetch GET 200 https://registry.npmjs.org/vite-node 70ms (cache revalidated)
+145 silly packumentCache corgi:https://registry.npmjs.org/vite-node set size:453359 disposed:false
+146 http fetch GET 200 https://registry.npmjs.org/vitest 78ms (cache revalidated)
+147 silly packumentCache corgi:https://registry.npmjs.org/vitest set size:1207532 disposed:false
+148 http fetch GET 200 https://registry.npmjs.org/@vitest%2fmocker 94ms (cache revalidated)
+149 silly packumentCache corgi:https://registry.npmjs.org/@vitest%2fmocker set size:99208 disposed:false
+150 http fetch GET 200 https://registry.npmjs.org/@vitejs%2fplugin-react 95ms (cache revalidated)
+151 silly packumentCache corgi:https://registry.npmjs.org/@vitejs%2fplugin-react set size:112470 disposed:false
+152 silly ADD node_modules/splaytree
+153 silly ADD node_modules/robust-predicates
+154 silly ADD node_modules/polygon-clipping
+155 silly ADD
+156 silly ADD
+157 silly ADD
+158 silly ADD
+159 silly ADD
+160 silly ADD
+161 silly ADD
+162 silly ADD
+163 silly ADD
+164 silly ADD
+165 silly ADD
+166 silly ADD
+167 silly ADD
+168 silly ADD
+169 silly ADD
+170 silly ADD
+171 silly ADD
+172 silly ADD
+173 silly ADD
+174 silly ADD
+175 silly ADD
+176 silly ADD
+177 silly ADD
+178 silly ADD
+179 silly ADD
+180 silly ADD
+181 silly ADD
+182 silly ADD
+183 silly ADD
+184 silly ADD
+185 silly ADD
+186 silly ADD
+187 silly ADD
+188 silly ADD
+189 silly ADD
+190 silly ADD
+191 silly ADD
+192 silly ADD
+193 silly ADD
+194 silly ADD
+195 silly ADD
+196 silly ADD
+197 silly ADD
+198 silly ADD
+199 silly ADD
+200 silly ADD
+201 verbose cwd C:\Users\mikha\Documents\Codex playground
+202 verbose os Windows_NT 10.0.22631
+203 verbose node v22.18.0
+204 verbose npm  v10.9.3
+205 verbose exit 0
+206 info ok
