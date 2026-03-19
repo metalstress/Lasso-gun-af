@@ -160,6 +160,7 @@ function App() {
   const contextMenuRef = useRef(null);
   const shapePresetRef = useRef(null);
   const destroyBrushRef = useRef(null);
+  const importSvgInputRef = useRef(null);
   const toolbarTooltipTimerRef = useRef(null);
   const dockToolbarRef = useRef(null);
   const workspaceRef = useRef(null);
@@ -2150,8 +2151,33 @@ function App() {
     return true;
   };
 
+  const handleImportSvgRequest = () => {
+    importSvgInputRef.current?.click();
+  };
+
+  const handleImportSvgInputChange = async (event) => {
+    const input = event.currentTarget;
+    const svgFile = Array.from(input.files ?? []).find((file) =>
+      String(file.name ?? '').toLowerCase().endsWith('.svg') ||
+      String(file.type ?? '').toLowerCase() === 'image/svg+xml',
+    );
+
+    if (svgFile) {
+      await handleImportSvg(svgFile, null);
+    }
+
+    input.value = '';
+  };
+
   return (
     <div className={`app-shell theme-${theme}`} style={uiThemeStyle}>
+      <input
+        ref={importSvgInputRef}
+        className="visually-hidden-file-input"
+        type="file"
+        accept=".svg,image/svg+xml"
+        onChange={handleImportSvgInputChange}
+      />
       <div className="editor-layout">
         <LayersSidebar
           className={
@@ -2163,6 +2189,7 @@ function App() {
           onCloseMobilePanel={closeMobilePanel}
           onClearSelection={handleClearSelection}
           onContextMenu={handleLayerContextMenu}
+          onImportSvgRequest={handleImportSvgRequest}
           onRenameGroup={handleRenameGroup}
           onRenameShape={handleRenameShape}
           onSelectAllShapes={handleSelectAllShapes}

@@ -5,6 +5,7 @@ function LayersSidebar({
   isMobileLayout = false,
   onCloseMobilePanel,
   onContextMenu,
+  onImportSvgRequest,
   selectedShapeIds,
   shapes,
   onClearSelection,
@@ -105,6 +106,14 @@ function LayersSidebar({
           <span className="data-chip">Selected: {selectedShapeIds.length}</span>
           <span className="data-chip">Layers: {shapes.length}</span>
         </div>
+
+        <button
+          type="button"
+          className="secondary-button import-svg-button"
+          onClick={onImportSvgRequest}
+        >
+          Import SVG
+        </button>
       </div>
     </aside>
   );

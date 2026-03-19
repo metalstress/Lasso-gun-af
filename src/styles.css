@@ -1200,6 +1200,19 @@ input[type="range"] {
   align-content: end;
 }
 
+.import-svg-button {
+  width: 100%;
+}
+
+.visually-hidden-file-input {
+  position: fixed;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
 .layers-separator {
   height: 1px;
   background: rgba(255, 255, 255, 0.08);
