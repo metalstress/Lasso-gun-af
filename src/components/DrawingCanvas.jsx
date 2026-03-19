@@ -13,6 +13,7 @@ function DrawingCanvas({
   editorMode,
   isDraftActive = false,
   isDraftReady = false,
+  isSequentialDualPoint = false,
   onDuplicateShapeDragStart,
   snapToGrid = false,
   onBeginHistoryGesture,
@@ -272,7 +273,12 @@ function DrawingCanvas({
       return;
     }
 
-    const kind = resolveInputKind(event, scene.draftState.touchMode);
+    const kind = resolveInputKind(
+      event,
+      scene.draftState,
+      scene.draftState.touchMode,
+      isSequentialDualPoint,
+    );
 
     if (!kind) {
       return;
@@ -560,13 +566,21 @@ function shouldStartPanGesture(event, isSpacePressed) {
   return event.button === 1 || (isSpacePressed && event.button === 0);
 }
 
-function resolveInputKind(event, touchMode) {
+function resolveInputKind(event, draftState, touchMode, isSequentialDualPoint) {
   if (event.currentTarget?.dataset.mode === DRAW_MODE_CLASSIC) {
     if (event.pointerType === 'mouse' && event.button !== 0) {
       return null;
     }
 
     return POINT_KIND_A;
+  }
+
+  if (isSequentialDualPoint) {
+    if (event.pointerType === 'mouse' && event.button !== 0) {
+      return null;
+    }
+
+    return getExpectedKind(draftState) ?? POINT_KIND_A;
   }
 
   if (event.pointerType === 'mouse') {

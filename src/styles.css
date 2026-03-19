@@ -2020,6 +2020,147 @@ input[type="range"] {
   gap: 10px;
 }
 
+.preferences-overlay {
+  width: min(920px, 100%);
+}
+
+.preferences-header-copy {
+  display: grid;
+  gap: 6px;
+}
+
+.preferences-tabs {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 5px;
+  border-radius: 16px;
+  background: rgba(0, 0, 0, 0.24);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.preferences-tabs button,
+.preferences-preset-button,
+.preferences-mode-button {
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    transform 160ms ease;
+}
+
+.preferences-tabs button {
+  min-height: 42px;
+  padding: 0 16px;
+}
+
+.preferences-tabs button:hover,
+.preferences-preset-button:hover,
+.preferences-mode-button:hover,
+.about-link-card:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.preferences-tabs button:active,
+.preferences-preset-button:active,
+.preferences-mode-button:active,
+.about-link-card:active {
+  transform: translateY(1px);
+}
+
+.preferences-tabs button.is-active,
+.preferences-preset-button.is-active,
+.preferences-mode-button.is-active {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+}
+
+.preferences-section {
+  display: grid;
+  gap: 14px;
+}
+
+.preferences-card {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.preferences-mode-grid,
+.preferences-preset-grid,
+.preferences-color-grid,
+.about-links {
+  display: grid;
+  gap: 10px;
+}
+
+.preferences-mode-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.preferences-mode-button {
+  min-height: 0;
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  text-align: left;
+}
+
+.preferences-mode-title {
+  font-size: 1rem;
+  color: var(--text);
+}
+
+.preferences-preset-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.preferences-preset-button {
+  min-height: 48px;
+  padding: 0 14px;
+}
+
+.preferences-color-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.about-links {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.about-link-card {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  text-decoration: none;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    transform 160ms ease;
+}
+
+.about-link-label {
+  font-size: 0.74rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.about-link-card strong {
+  font-size: 1.02rem;
+  font-weight: 500;
+}
+
 @media (max-width: 1080px) {
   .app-shell {
     padding: 14px;
@@ -2517,6 +2658,13 @@ input[type="range"] {
   .overlay-grid {
     grid-template-columns: 1fr;
   }
+
+  .preferences-mode-grid,
+  .preferences-preset-grid,
+  .preferences-color-grid,
+  .about-links {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 740px) {
@@ -2897,6 +3045,10 @@ input[type="range"] {
     display: inline-grid;
   }
 
+  .preferences-tool {
+    grid-column: span 2;
+  }
+
   .tool-chip-group {
     grid-column: span 2;
     width: 100%;
@@ -2940,6 +3092,18 @@ input[type="range"] {
 
   .shape-preset-menu {
     width: min(260px, calc(100vw - 32px));
+  }
+
+  .preferences-tabs {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .preferences-tabs button,
+  .preferences-preset-button,
+  .preferences-mode-button {
+    min-width: 0;
   }
 
   .toolbar-tooltip {
