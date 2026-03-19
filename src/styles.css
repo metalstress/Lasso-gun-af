@@ -1494,6 +1494,51 @@ input[type="range"] {
   cursor: grabbing;
 }
 
+.canvas-frame.is-svg-drop-active {
+  box-shadow:
+    0 0 0 1px rgba(192, 255, 104, 0.28),
+    0 0 0 2px rgba(192, 255, 104, 0.12),
+    0 0 42px rgba(192, 255, 104, 0.16);
+}
+
+.canvas-frame.is-svg-drop-active::before {
+  opacity: 0.78;
+  border-color: rgba(192, 255, 104, 0.68);
+}
+
+.canvas-drop-overlay {
+  position: absolute;
+  inset: 18px;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  border: 1px dashed rgba(192, 255, 104, 0.52);
+  border-radius: 24px;
+  background:
+    linear-gradient(180deg, rgba(192, 255, 104, 0.05), rgba(192, 255, 104, 0.03)),
+    rgba(10, 12, 10, 0.12);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.04),
+    0 0 36px rgba(192, 255, 104, 0.08);
+  z-index: 8;
+}
+
+.canvas-drop-overlay-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 0 18px;
+  border-radius: 999px;
+  border: 1px solid rgba(192, 255, 104, 0.36);
+  background: rgba(8, 10, 8, 0.86);
+  color: var(--draft-accent);
+  letter-spacing: 0.08em;
+  box-shadow:
+    0 0 0 1px rgba(192, 255, 104, 0.08),
+    0 0 26px rgba(192, 255, 104, 0.12);
+}
+
 .canvas-transform-box {
   position: absolute;
   pointer-events: none;

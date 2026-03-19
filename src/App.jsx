@@ -25,6 +25,7 @@ import {
   setDrawMode,
   undo,
 } from './lib/lasso.js';
+import { importSvgFileAsShapes } from './lib/svg-import.js';
 import {
   ALIGN_BOTTOM,
   ALIGN_CENTER_X,
@@ -2108,6 +2109,38 @@ function App() {
     setIsExportOpen(false);
   };
 
+  const handleImportSvg = async (file, dropPoint) => {
+    hideToolbarTooltip();
+    setViewportContextMenu(CLOSED_VIEWPORT_CONTEXT_MENU);
+
+    let importedShapes = [];
+
+    try {
+      importedShapes = await importSvgFileAsShapes(file, {
+        dropPoint,
+        surfaceSize,
+      });
+    } catch (error) {
+      console.error('SVG import failed', error);
+      return false;
+    }
+
+    if (importedShapes.length === 0) {
+      return false;
+    }
+
+    commitHistoryChange((snapshot) => ({
+      ...snapshot,
+      drawingState: clear(snapshot.drawingState),
+      shapes: [...snapshot.shapes, ...importedShapes],
+      selectedHandleIds: [],
+      selectedShapeIds: importedShapes.map((shape) => shape.id),
+      editorMode: EDITOR_MODE_SELECT,
+    }));
+
+    return true;
+  };
+
   return (
     <div className={`app-shell theme-${theme}`} style={uiThemeStyle}>
       <div className="editor-layout">
@@ -2153,6 +2186,7 @@ function App() {
             onInsertShapeVertex={handleInsertShapeVertex}
             onPlacePoint={handlePlacePoint}
             onPointerChange={handlePointerChange}
+            onImportSvg={handleImportSvg}
             onSelectHandleIds={handleSelectHandleIds}
             onSelectShapeIds={handleSelectShapeIds}
             onSurfaceChange={setSurfaceSize}

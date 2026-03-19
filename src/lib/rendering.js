@@ -76,7 +76,7 @@ export function drawLassoScene(context, surfaceSize, scene, appearance = DEFAULT
     drawBackdropGrid(context, width, height, style, viewOffset, viewScale);
   }
 
-  drawCommittedShapes(context, surfaceSize, scene, style);
+  drawCommittedShapes(context, surfaceSize, scene, style, viewScale);
   drawDraftState(
     context,
     surfaceSize,
@@ -89,6 +89,7 @@ export function drawLassoScene(context, surfaceSize, scene, appearance = DEFAULT
       showReticle: renderOptions.showReticle && isDrawMode,
     },
     preview,
+    viewScale,
   );
 
   context.restore();
@@ -191,7 +192,7 @@ export function exportSceneAsSvg({
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
-function drawCommittedShapes(context, surfaceSize, scene, style) {
+function drawCommittedShapes(context, surfaceSize, scene, style, viewScale = 1) {
   const selectedIds = new Set(scene.selectedShapeIds ?? []);
   const hoveredShapeId = scene.hoveredShapeId ?? null;
 
@@ -229,11 +230,12 @@ function drawCommittedShapes(context, surfaceSize, scene, style) {
       true,
       handle.isSelected,
       scene.hoveredHandleId === handle.id,
+      viewScale,
     );
   });
 
   if (scene.insertHandle?.point) {
-    drawInsertHandle(context, toSurfacePoint(scene.insertHandle.point, surfaceSize), style);
+    drawInsertHandle(context, toSurfacePoint(scene.insertHandle.point, surfaceSize), style, viewScale);
   }
 
   if (scene.selectionLasso?.length >= 2) {
@@ -245,20 +247,20 @@ function drawCommittedShapes(context, surfaceSize, scene, style) {
   }
 }
 
-function drawDraftState(context, surfaceSize, state, style, renderOptions, preview) {
+function drawDraftState(context, surfaceSize, state, style, renderOptions, preview, viewScale = 1) {
   if (!state) {
     return;
   }
 
   if (state.mode === DRAW_MODE_CLASSIC) {
-    drawClassicDraft(context, surfaceSize, state, style, renderOptions, preview);
+    drawClassicDraft(context, surfaceSize, state, style, renderOptions, preview, viewScale);
     return;
   }
 
-  drawDualDraft(context, surfaceSize, state, style, renderOptions, preview);
+  drawDualDraft(context, surfaceSize, state, style, renderOptions, preview, viewScale);
 }
 
-function drawDualDraft(context, surfaceSize, state, style, renderOptions, preview) {
+function drawDualDraft(context, surfaceSize, state, style, renderOptions, preview, viewScale = 1) {
   const pointsA = state.pointsA.map((point) => toSurfacePoint(point, surfaceSize));
   const pointsB = state.pointsB.map((point) => toSurfacePoint(point, surfaceSize));
   const closedShape = getClosedShapePoints(state).map((point) => toSurfacePoint(point, surfaceSize));
@@ -280,8 +282,8 @@ function drawDualDraft(context, surfaceSize, state, style, renderOptions, previe
   }
 
   if (renderOptions.showHandles) {
-    drawNodes(context, pointsA, expectedKind === 'p1', style, renderOptions.showBackground);
-    drawNodes(context, pointsB, expectedKind === 'p2', style, renderOptions.showBackground);
+    drawNodes(context, pointsA, expectedKind === 'p1', style, renderOptions.showBackground, viewScale);
+    drawNodes(context, pointsB, expectedKind === 'p2', style, renderOptions.showBackground, viewScale);
   }
 
   if (renderOptions.showReticle && state.pointer) {
@@ -289,7 +291,7 @@ function drawDualDraft(context, surfaceSize, state, style, renderOptions, previe
   }
 }
 
-function drawClassicDraft(context, surfaceSize, state, style, renderOptions, preview) {
+function drawClassicDraft(context, surfaceSize, state, style, renderOptions, preview, viewScale = 1) {
   const classicPoints = state.classicPoints.map((point) => toSurfacePoint(point, surfaceSize));
   const closedShape = getClosedShapePoints(state).map((point) => toSurfacePoint(point, surfaceSize));
 
@@ -308,7 +310,7 @@ function drawClassicDraft(context, surfaceSize, state, style, renderOptions, pre
   }
 
   if (renderOptions.showHandles) {
-    drawNodes(context, classicPoints, classicPoints.length > 0, style, renderOptions.showBackground);
+    drawNodes(context, classicPoints, classicPoints.length > 0, style, renderOptions.showBackground, viewScale);
   }
 
   if (renderOptions.showReticle && state.pointer) {
@@ -542,7 +544,7 @@ function drawPreview(context, preview, surfaceSize, style) {
   context.restore();
 }
 
-function drawNodes(context, points, highlightTail, style, showBackground) {
+function drawNodes(context, points, highlightTail, style, showBackground, viewScale = 1) {
   points.forEach((point, index) => {
     drawHandleNode(
       context,
@@ -551,6 +553,8 @@ function drawNodes(context, points, highlightTail, style, showBackground) {
       highlightTail && index === points.length - 1,
       showBackground,
       false,
+      false,
+      viewScale,
     );
   });
 }
@@ -563,10 +567,17 @@ function drawHandleNode(
   showBackground = true,
   isSelected = false,
   isHovered = false,
+  viewScale = 1,
 ) {
+  const metrics = getHandleRenderMetrics(viewScale, {
+    highlight,
+    isHovered,
+    isSelected,
+  });
+
   context.save();
   context.beginPath();
-  context.arc(point.x, point.y, isSelected ? 7.2 : isHovered ? 6.8 : highlight ? 6.5 : 5, 0, Math.PI * 2);
+  context.arc(point.x, point.y, metrics.radius, 0, Math.PI * 2);
   context.fillStyle = isSelected
     ? 'rgba(192, 255, 104, 0.88)'
     : isHovered
@@ -574,31 +585,33 @@ function drawHandleNode(
       : showBackground
         ? style.panel
         : 'rgba(0, 0, 0, 0)';
-  context.shadowBlur = isSelected ? 24 : isHovered ? 20 : highlight ? 20 : 12;
+  context.shadowBlur = metrics.shadowBlur;
   context.shadowColor = isSelected || isHovered ? 'rgba(192, 255, 104, 0.34)' : style.lineGlow;
   context.fill();
-  context.lineWidth = isSelected ? 2.8 : isHovered ? 2.5 : highlight ? 2.4 : 1.8;
+  context.lineWidth = metrics.lineWidth;
   context.strokeStyle = isSelected || isHovered ? '#c0ff68' : style.stroke;
   context.stroke();
   context.restore();
 }
 
-function drawInsertHandle(context, point, style) {
+function drawInsertHandle(context, point, style, viewScale = 1) {
+  const metrics = getInsertHandleRenderMetrics(viewScale);
+
   context.save();
   context.beginPath();
-  context.arc(point.x, point.y, 9, 0, Math.PI * 2);
+  context.arc(point.x, point.y, metrics.radius, 0, Math.PI * 2);
   context.fillStyle = style.panel;
-  context.shadowBlur = 18;
+  context.shadowBlur = metrics.shadowBlur;
   context.shadowColor = style.lineGlow;
   context.fill();
-  context.lineWidth = 2;
+  context.lineWidth = metrics.lineWidth;
   context.strokeStyle = '#c0ff68';
   context.stroke();
   context.beginPath();
-  context.moveTo(point.x - 4, point.y);
-  context.lineTo(point.x + 4, point.y);
-  context.moveTo(point.x, point.y - 4);
-  context.lineTo(point.x, point.y + 4);
+  context.moveTo(point.x - metrics.crossHalfSize, point.y);
+  context.lineTo(point.x + metrics.crossHalfSize, point.y);
+  context.moveTo(point.x, point.y - metrics.crossHalfSize);
+  context.lineTo(point.x, point.y + metrics.crossHalfSize);
   context.strokeStyle = '#c0ff68';
   context.lineCap = 'round';
   context.stroke();
@@ -791,6 +804,32 @@ function withAlpha(rgbaColor, multiplier) {
   return rgbaColor.replace(/rgba\(([^,]+),([^,]+),([^,]+),([^)]+)\)/, (_, r, g, b, a) => {
     return `rgba(${r},${g},${b},${clamp(Number(a) * multiplier, 0, 1)})`;
   });
+}
+
+function getHandleRenderMetrics(viewScale, { highlight = false, isHovered = false, isSelected = false } = {}) {
+  const safeScale = normalizeViewScale(viewScale);
+  const baseScreenRadius = isSelected ? 9.6 : isHovered ? 8.9 : highlight ? 8.3 : 7.2;
+  const screenRadius = clamp(baseScreenRadius / Math.sqrt(safeScale), 5.6, isSelected ? 10.8 : 9.4);
+  const screenStroke = isSelected ? 2.6 : isHovered ? 2.2 : highlight ? 2.05 : 1.75;
+
+  return {
+    lineWidth: screenStroke / safeScale,
+    radius: screenRadius / safeScale,
+    shadowBlur: isSelected ? 24 : isHovered ? 20 : highlight ? 18 : 12,
+  };
+}
+
+function getInsertHandleRenderMetrics(viewScale) {
+  const safeScale = normalizeViewScale(viewScale);
+  const screenRadius = clamp(11 / Math.sqrt(safeScale), 7.2, 12.5);
+  const crossHalfSize = clamp(4.8 / Math.sqrt(safeScale), 3.2, 5.2);
+
+  return {
+    crossHalfSize: crossHalfSize / safeScale,
+    lineWidth: 2 / safeScale,
+    radius: screenRadius / safeScale,
+    shadowBlur: 18,
+  };
 }
 
 function strokeNeonContour(

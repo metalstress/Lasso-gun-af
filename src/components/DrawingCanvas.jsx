@@ -32,6 +32,7 @@ function DrawingCanvas({
   onRotateShapes,
   onTransformPlusShapes,
   onMirrorSelection,
+  onImportSvg,
   onPlacePoint,
   onPointerChange,
   onInsertShapeVertex,
@@ -48,12 +49,14 @@ function DrawingCanvas({
   const canvasRef = useRef(null);
   const dragRef = useRef(null);
   const transformDragRef = useRef(null);
+  const fileDragDepthRef = useRef(0);
   const [destroyCursorPoint, setDestroyCursorPoint] = useState(null);
   const [hoverInsertHandle, setHoverInsertHandle] = useState(null);
   const [hoveredHandleId, setHoveredHandleId] = useState(null);
   const [hoveredShapeId, setHoveredShapeId] = useState(null);
   const [selectionLasso, setSelectionLasso] = useState([]);
   const [transformPlusState, setTransformPlusState] = useState(null);
+  const [isSvgDropActive, setIsSvgDropActive] = useState(false);
   const [surfaceSize, setSurfaceSize] = useState({ width: 960, height: 640 });
   const [viewportOffset, setViewportOffset] = useState({ x: 0, y: 0 });
   const [viewportScale, setViewportScale] = useState(1);
@@ -695,11 +698,77 @@ function DrawingCanvas({
     });
   };
 
+  const handleSvgDragEnter = (event) => {
+    if (!hasSvgDragPayload(event.dataTransfer)) {
+      return;
+    }
+
+    event.preventDefault();
+    fileDragDepthRef.current += 1;
+    setIsSvgDropActive(true);
+  };
+
+  const handleSvgDragOver = (event) => {
+    if (!hasSvgDragPayload(event.dataTransfer)) {
+      return;
+    }
+
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+    if (!isSvgDropActive) {
+      setIsSvgDropActive(true);
+    }
+  };
+
+  const handleSvgDragLeave = (event) => {
+    if (!hasSvgDragPayload(event.dataTransfer)) {
+      return;
+    }
+
+    event.preventDefault();
+    fileDragDepthRef.current = Math.max(0, fileDragDepthRef.current - 1);
+
+    if (fileDragDepthRef.current === 0) {
+      setIsSvgDropActive(false);
+    }
+  };
+
+  const handleSvgDrop = async (event) => {
+    if (!hasSvgDragPayload(event.dataTransfer)) {
+      return;
+    }
+
+    event.preventDefault();
+    fileDragDepthRef.current = 0;
+    setIsSvgDropActive(false);
+
+    const svgFile = Array.from(event.dataTransfer.files ?? []).find((file) => isSvgFile(file));
+
+    if (!svgFile) {
+      return;
+    }
+
+    const rawPoint = readCanvasPoint(event, canvasRef.current, viewportOffset, viewportScale);
+    const point = maybeSnapPoint(rawPoint, surfaceSize, snapToGrid);
+    await onImportSvg?.(svgFile, point);
+  };
+
   return (
     <section
-      className={`canvas-frame ${isDraftActive ? 'is-draft-active' : ''} ${isDraftReady ? 'is-draft-ready' : ''}`.trim()}
+      className={`canvas-frame ${isDraftActive ? 'is-draft-active' : ''} ${isDraftReady ? 'is-draft-ready' : ''} ${
+        isSvgDropActive ? 'is-svg-drop-active' : ''
+      }`.trim()}
       ref={frameRef}
+      onDragEnter={handleSvgDragEnter}
+      onDragLeave={handleSvgDragLeave}
+      onDragOver={handleSvgDragOver}
+      onDrop={handleSvgDrop}
     >
+      {isSvgDropActive ? (
+        <div className="canvas-drop-overlay" aria-hidden="true">
+          <span className="canvas-drop-overlay-copy">Drop SVG to import</span>
+        </div>
+      ) : null}
       <canvas
         ref={canvasRef}
         className="drawing-canvas"
@@ -1189,7 +1258,7 @@ function readClientPoint(clientX, clientY, canvas, viewOffset = { x: 0, y: 0 }, 
 }
 
 function findHandleAtPoint(handles = [], point, surfaceSize, viewScale = 1) {
-  const radius = 12;
+  const radius = getHandleHitRadius(viewScale);
 
   for (let index = handles.length - 1; index >= 0; index -= 1) {
     const handle = handles[index];
@@ -1204,6 +1273,11 @@ function findHandleAtPoint(handles = [], point, surfaceSize, viewScale = 1) {
   return null;
 }
 
+function getHandleHitRadius(viewScale) {
+  const safeScale = Math.max(Number(viewScale) || 1, Number.EPSILON);
+  return clamp(18 / Math.sqrt(safeScale), 9, 22);
+}
+
 function getShapeSnapshot(shapes, shapeId) {
   return shapes.find((shape) => shape.id === shapeId) ?? null;
 }
@@ -1214,6 +1288,38 @@ function maybeSnapPoint(point, surfaceSize, snapToGrid) {
   }
 
   return snapPointToGrid(point, surfaceSize);
+}
+
+function hasSvgDragPayload(dataTransfer) {
+  if (!dataTransfer) {
+    return false;
+  }
+
+  const items = Array.from(dataTransfer.items ?? []);
+
+  if (
+    items.some(
+      (item) =>
+        item.kind === 'file' &&
+        (String(item.type ?? '').toLowerCase() === 'image/svg+xml' ||
+          String(item.type ?? '') === ''),
+    )
+  ) {
+    return true;
+  }
+
+  return Array.from(dataTransfer.files ?? []).some((file) => isSvgFile(file));
+}
+
+function isSvgFile(file) {
+  if (!file) {
+    return false;
+  }
+
+  return (
+    String(file.type ?? '').toLowerCase() === 'image/svg+xml' ||
+    String(file.name ?? '').toLowerCase().endsWith('.svg')
+  );
 }
 
 function updateSelection(currentSelection, shapeId, additiveSelection) {
