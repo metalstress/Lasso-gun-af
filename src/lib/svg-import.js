@@ -1,3 +1,4 @@
+import { svgPathProperties } from 'svg-path-properties';
 import { GRID_STEP_PX } from './grid.js';
 import { createShapeFromPolygons } from './shapes.js';
 
@@ -200,6 +201,12 @@ function extractElementPolygons(element, svgRoot) {
 }
 
 function samplePathElement(pathElement) {
+  const pathData = String(pathElement?.getAttribute('d') ?? '').trim();
+
+  if (pathData) {
+    return samplePathString(pathData, pathElement.getCTM());
+  }
+
   try {
     const totalLength = pathElement.getTotalLength();
     const stepCount = clamp(
@@ -223,15 +230,7 @@ function samplePathElement(pathElement) {
 }
 
 function samplePathData(svgRoot, pathData, matrix) {
-  const tempPath = document.createElementNS(SVG_NS, 'path');
-  tempPath.setAttribute('d', pathData);
-  svgRoot.appendChild(tempPath);
-
-  try {
-    return samplePathElementWithMatrix(tempPath, matrix);
-  } finally {
-    tempPath.remove();
-  }
+  return samplePathString(pathData, matrix);
 }
 
 function samplePathElementWithMatrix(pathElement, matrix) {
@@ -248,6 +247,29 @@ function samplePathElementWithMatrix(pathElement, matrix) {
       const cursor = (index / stepCount) * totalLength;
       const point = pathElement.getPointAtLength(cursor);
       sampledPoints.push(transformPoint({ x: point.x, y: point.y }, matrix));
+    }
+
+    return sampledPoints;
+  } catch {
+    return [];
+  }
+}
+
+function samplePathString(pathData, matrix) {
+  try {
+    const properties = new svgPathProperties(pathData);
+    const totalLength = properties.getTotalLength();
+    const stepCount = clamp(
+      Math.ceil(totalLength / PATH_SAMPLE_STEP),
+      MIN_PATH_POINTS,
+      MAX_PATH_POINTS,
+    );
+    const sampledPoints = [];
+
+    for (let index = 0; index < stepCount; index += 1) {
+      const cursor = (index / stepCount) * totalLength;
+      const point = properties.getPointAtLength(cursor);
+      sampledPoints.push(transformPoint(point, matrix));
     }
 
     return sampledPoints;
@@ -366,9 +388,17 @@ function isSvgElementImportable(element) {
 
   const display = String(element.getAttribute('display') ?? '').toLowerCase();
   const visibility = String(element.getAttribute('visibility') ?? '').toLowerCase();
-  const opacity = Number(element.getAttribute('opacity'));
+  const opacityAttribute = element.getAttribute('opacity');
+  const opacity =
+    opacityAttribute == null || opacityAttribute === ''
+      ? null
+      : Number(opacityAttribute);
 
-  if (display === 'none' || visibility === 'hidden' || (Number.isFinite(opacity) && opacity <= 0)) {
+  if (
+    display === 'none' ||
+    visibility === 'hidden' ||
+    (opacity != null && Number.isFinite(opacity) && opacity <= 0)
+  ) {
     return false;
   }
 
