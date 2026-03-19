@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { GRID_STEP_PX, snapPointToGrid } from '../lib/grid.js';
 import { DRAW_MODE_CLASSIC, POINT_KIND_A, POINT_KIND_B, getExpectedKind } from '../lib/lasso.js';
-import { findShapeIdsInLasso, findTopmostShapeIdAtPoint } from '../lib/shapes.js';
+import { findShapeIdsInLasso, findTopmostShapeIdAtPoint, getShapeBounds } from '../lib/shapes.js';
 import { drawLassoScene } from '../lib/rendering.js';
 
 const MIN_VIEWPORT_SCALE = 0.35;
@@ -29,6 +29,8 @@ function DrawingCanvas({
   onDestroyShapes,
   onEditorModeChange,
   onTransformShapes,
+  onRotateShapes,
+  onTransformPlusShapes,
   onMirrorSelection,
   onPlacePoint,
   onPointerChange,
@@ -51,6 +53,7 @@ function DrawingCanvas({
   const [hoveredHandleId, setHoveredHandleId] = useState(null);
   const [hoveredShapeId, setHoveredShapeId] = useState(null);
   const [selectionLasso, setSelectionLasso] = useState([]);
+  const [transformPlusState, setTransformPlusState] = useState(null);
   const [surfaceSize, setSurfaceSize] = useState({ width: 960, height: 640 });
   const [viewportOffset, setViewportOffset] = useState({ x: 0, y: 0 });
   const [viewportScale, setViewportScale] = useState(1);
@@ -58,16 +61,32 @@ function DrawingCanvas({
   const [isSpacePressed, setIsSpacePressed] = useState(false);
   const isDestroyMode = editorMode === 'destroy';
   const isTransformMode = editorMode === 'transform';
-  const isMoveEditMode = editorMode === 'select' || editorMode === 'edit' || isTransformMode;
+  const isTransformPlusMode = editorMode === 'transform-plus';
+  const isMoveEditMode =
+    editorMode === 'select' || editorMode === 'edit' || isTransformMode || isTransformPlusMode;
+  const transformSelectionKey = scene.selectedShapeIds.join('|');
+  const transformPlusQuad = transformPlusState?.quad ?? null;
   const transformOverlay = getTransformOverlayRect(
     transformSelectionBounds,
     surfaceSize,
     viewportOffset,
     viewportScale,
   );
+  const transformPlusOverlay = getTransformQuadOverlay(
+    transformPlusQuad,
+    surfaceSize,
+    viewportOffset,
+    viewportScale,
+  );
+  const transformPopupOverlay =
+    isTransformPlusMode && transformPlusOverlay
+      ? getTransformRectFromQuadOverlay(transformPlusOverlay)
+      : transformOverlay;
   const showTransformPopup =
-    Boolean(transformOverlay) && scene.selectedShapeIds.length > 0 && isMoveEditMode;
+    Boolean(transformPopupOverlay) && scene.selectedShapeIds.length > 0 && isMoveEditMode;
   const showTransformBox = Boolean(transformOverlay) && scene.selectedShapeIds.length > 0 && isTransformMode;
+  const showTransformPlusBox =
+    Boolean(transformPlusOverlay) && scene.selectedShapeIds.length > 0 && isTransformPlusMode;
   const destroyPreviewRect = getDestroyPreviewRect(
     isDestroyMode ? destroyCursorPoint : null,
     destroyBrushCells,
@@ -169,6 +188,24 @@ function DrawingCanvas({
       },
     );
   }, [appearance, hoveredHandleId, hoveredShapeId, hoverInsertHandle, scene, selectionLasso, surfaceSize, viewportOffset, viewportScale]);
+
+  useEffect(() => {
+    if (!isTransformPlusMode || !transformSelectionBounds || scene.selectedShapeIds.length === 0) {
+      setTransformPlusState(null);
+      return;
+    }
+
+    setTransformPlusState((current) => {
+      if (current?.selectionKey === transformSelectionKey && current?.quad) {
+        return current;
+      }
+
+      return {
+        selectionKey: transformSelectionKey,
+        quad: createTransformQuadFromBounds(transformSelectionBounds),
+      };
+    });
+  }, [isTransformPlusMode, transformSelectionBounds, transformSelectionKey, scene.selectedShapeIds.length]);
 
   useEffect(() => {
     const handleKeyDown = (event) => {
@@ -434,6 +471,7 @@ function DrawingCanvas({
     event.stopPropagation();
     onBeginHistoryGesture?.();
     transformDragRef.current = {
+      type: 'scale',
       handle,
       pointerId: event.pointerId,
       sourceBounds: transformSelectionBounds,
@@ -454,13 +492,33 @@ function DrawingCanvas({
       return;
     }
 
-    const point = readClientPoint(
+    const rawPoint = readClientPoint(
       event.clientX,
       event.clientY,
       canvasRef.current,
       viewportOffset,
       viewportScale,
     );
+
+    if (!rawPoint) {
+      return;
+    }
+
+    if (transformDrag.type === 'rotate') {
+      const point = rawPoint;
+      const nextAngle =
+        getAngleBetweenPoints(transformDrag.pivotPoint, point) - transformDrag.startAngle;
+
+      onRotateShapes?.(
+        transformDrag.shapeIds,
+        transformDrag.baseShapes,
+        transformDrag.pivotPoint,
+        nextAngle,
+      );
+      return;
+    }
+
+    const point = maybeSnapPoint(rawPoint, surfaceSize, snapToGrid);
 
     if (!point) {
       return;
@@ -486,6 +544,131 @@ function DrawingCanvas({
     const transformDrag = transformDragRef.current;
 
     if (!transformDrag || transformDrag.pointerId !== event.pointerId) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    transformDragRef.current = null;
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+    onEndHistoryGesture?.();
+  };
+
+  const handleTransformRotatePointerDown = (event) => {
+    if (!isTransformMode || !transformSelectionBounds || scene.selectedShapeIds.length === 0) {
+      return;
+    }
+
+    const point = readClientPoint(
+      event.clientX,
+      event.clientY,
+      canvasRef.current,
+      viewportOffset,
+      viewportScale,
+    );
+    const pivotPoint = getBoundsCenter(transformSelectionBounds);
+
+    if (!point || !pivotPoint) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    onBeginHistoryGesture?.();
+    transformDragRef.current = {
+      type: 'rotate',
+      pointerId: event.pointerId,
+      pivotPoint,
+      startAngle: getAngleBetweenPoints(pivotPoint, point),
+      baseShapes: scene.selectedShapeIds
+        .map((shapeId) => getShapeSnapshot(scene.shapes, shapeId))
+        .filter(Boolean),
+      shapeIds: [...scene.selectedShapeIds],
+    };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  };
+
+  const handleTransformPlusHandlePointerDown = (event) => {
+    if (!isTransformPlusMode || !transformSelectionBounds || !transformPlusQuad || scene.selectedShapeIds.length === 0) {
+      return;
+    }
+
+    const handle = event.currentTarget.dataset.handle;
+
+    if (!handle) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    onBeginHistoryGesture?.();
+    transformDragRef.current = {
+      type: 'transform-plus',
+      handle,
+      pointerId: event.pointerId,
+      sourceBounds: transformSelectionBounds,
+      sourceQuad: cloneTransformQuad(transformPlusQuad),
+      selectionKey: transformSelectionKey,
+      baseShapes: scene.selectedShapeIds
+        .map((shapeId) => getShapeSnapshot(scene.shapes, shapeId))
+        .filter(Boolean),
+      shapeIds: [...scene.selectedShapeIds],
+    };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  };
+
+  const handleTransformPlusHandlePointerMove = (event) => {
+    const transformDrag = transformDragRef.current;
+
+    if (
+      !transformDrag ||
+      transformDrag.type !== 'transform-plus' ||
+      transformDrag.pointerId !== event.pointerId
+    ) {
+      return;
+    }
+
+    const point = maybeSnapPoint(
+      readClientPoint(
+        event.clientX,
+        event.clientY,
+        canvasRef.current,
+        viewportOffset,
+        viewportScale,
+      ),
+      surfaceSize,
+      snapToGrid,
+    );
+
+    if (!point) {
+      return;
+    }
+
+    const nextQuad = {
+      ...transformDrag.sourceQuad,
+      [transformDrag.handle]: point,
+    };
+
+    setTransformPlusState({
+      selectionKey: transformDrag.selectionKey,
+      quad: nextQuad,
+    });
+    onTransformPlusShapes?.(
+      transformDrag.shapeIds,
+      transformDrag.baseShapes,
+      transformDrag.sourceBounds,
+      nextQuad,
+    );
+  };
+
+  const handleTransformPlusHandlePointerUp = (event) => {
+    const transformDrag = transformDragRef.current;
+
+    if (
+      !transformDrag ||
+      transformDrag.type !== 'transform-plus' ||
+      transformDrag.pointerId !== event.pointerId
+    ) {
       return;
     }
 
@@ -554,6 +737,16 @@ function DrawingCanvas({
           }}
           aria-hidden="true"
         >
+          <div className="canvas-transform-rotate-stem" />
+          <button
+            type="button"
+            className="canvas-transform-handle handle-rotate"
+            tabIndex={-1}
+            onPointerDown={handleTransformRotatePointerDown}
+            onPointerMove={handleTransformHandlePointerMove}
+            onPointerUp={handleTransformHandlePointerUp}
+            onPointerCancel={handleTransformHandlePointerUp}
+          />
           {TRANSFORM_HANDLES.map((handle) => (
             <button
               key={handle}
@@ -569,10 +762,51 @@ function DrawingCanvas({
           ))}
         </div>
       ) : null}
+      {showTransformPlusBox ? (
+        <div className="canvas-transform-plus-box" aria-hidden="true">
+          <svg className="canvas-transform-plus-svg" viewBox={`0 0 ${surfaceSize.width} ${surfaceSize.height}`}>
+            <path
+              className="canvas-transform-plus-path"
+              d={getTransformQuadPath(transformPlusOverlay)}
+            />
+            <path
+              className="canvas-transform-plus-path canvas-transform-plus-path-secondary"
+              d={getTransformQuadPath(transformPlusOverlay)}
+            />
+          </svg>
+          {TRANSFORM_PLUS_HANDLES.map((handle) => {
+            const point = transformPlusOverlay?.[handle];
+
+            if (!point) {
+              return null;
+            }
+
+            return (
+              <button
+                key={handle}
+                type="button"
+                className="canvas-transform-handle canvas-transform-plus-handle"
+                data-handle={handle}
+                style={{
+                  left: `${point.x}px`,
+                  top: `${point.y}px`,
+                }}
+                tabIndex={-1}
+                onPointerDown={handleTransformPlusHandlePointerDown}
+                onPointerMove={handleTransformPlusHandlePointerMove}
+                onPointerUp={handleTransformPlusHandlePointerUp}
+                onPointerCancel={handleTransformPlusHandlePointerUp}
+              />
+            );
+          })}
+        </div>
+      ) : null}
       {showTransformPopup ? (
         <div
-          className={`canvas-transform-popover ${showTransformBox ? 'is-transform-active' : ''}`.trim()}
-          style={getTransformPopoverStyle(transformOverlay, surfaceSize)}
+          className={`canvas-transform-popover ${
+            showTransformBox || showTransformPlusBox ? 'is-transform-active' : ''
+          }`.trim()}
+          style={getTransformPopoverStyle(transformPopupOverlay, surfaceSize)}
         >
           <button
             type="button"
@@ -580,6 +814,13 @@ function DrawingCanvas({
             onClick={() => onEditorModeChange?.(isTransformMode ? 'select' : 'transform')}
           >
             Transform
+          </button>
+          <button
+            type="button"
+            className={`canvas-transform-action ${showTransformPlusBox ? 'is-active' : ''}`.trim()}
+            onClick={() => onEditorModeChange?.(isTransformPlusMode ? 'select' : 'transform-plus')}
+          >
+            Transform+
           </button>
           <button
             type="button"
@@ -660,6 +901,9 @@ function DrawingCanvas({
         !additiveSelection && scene.selectedShapeIds.includes(hitShapeId)
           ? scene.selectedShapeIds
           : nextSelectedShapeIds;
+      const dragBaseShapes = dragShapeIds
+        .map((shapeId) => getShapeSnapshot(scene.shapes, shapeId))
+        .filter(Boolean);
 
       onSelectHandleIds([]);
       onSelectShapeIds(nextSelectedShapeIds);
@@ -675,9 +919,15 @@ function DrawingCanvas({
         shapeIds: dragShapeIds,
         originPoint: snappedPoint,
         rememberDuplicateDelta: false,
-        baseShapes: dragShapeIds
-          .map((shapeId) => getShapeSnapshot(scene.shapes, shapeId))
-          .filter(Boolean),
+        baseQuad: isTransformPlusMode
+          ? cloneTransformQuad(
+              areShapeIdListsEqual(dragShapeIds, scene.selectedShapeIds)
+                ? transformPlusQuad ?? createTransformQuadFromBounds(transformSelectionBounds)
+                : createTransformQuadFromBounds(getShapesBoundsFromList(dragBaseShapes)),
+            )
+          : null,
+        selectionKey: transformSelectionKey,
+        baseShapes: dragBaseShapes,
       };
       event.currentTarget.setPointerCapture?.(event.pointerId);
       return;
@@ -685,7 +935,20 @@ function DrawingCanvas({
 
     onSelectHandleIds([]);
 
-    if (isTransformMode) {
+    const isInsideActiveTransformArea =
+      rawPoint &&
+      ((isTransformMode && isPointInsideBounds(rawPoint, transformSelectionBounds)) ||
+        (isTransformPlusMode &&
+          isPointInQuad(
+            rawPoint,
+            transformPlusQuad ?? createTransformQuadFromBounds(transformSelectionBounds),
+          )));
+
+    if (isInsideActiveTransformArea) {
+      return;
+    }
+
+    if (isTransformMode || isTransformPlusMode) {
       onEditorModeChange?.('select');
       return;
     }
@@ -798,6 +1061,13 @@ function DrawingCanvas({
       onMoveShape(dragRef.current.shapeIds, dragRef.current.baseShapes, delta, {
         rememberDuplicateDelta: dragRef.current.rememberDuplicateDelta === true,
       });
+
+      if (isTransformPlusMode && dragRef.current.baseQuad) {
+        setTransformPlusState({
+          selectionKey: dragRef.current.selectionKey,
+          quad: moveTransformQuad(dragRef.current.baseQuad, delta),
+        });
+      }
     }
   }
 
@@ -838,6 +1108,7 @@ function DrawingCanvas({
 }
 
 const TRANSFORM_HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
+const TRANSFORM_PLUS_HANDLES = ['nw', 'ne', 'se', 'sw'];
 
 function shouldStartPanGesture(event, isSpacePressed) {
   if (event.pointerType !== 'mouse') {
@@ -1022,6 +1293,35 @@ function mergeSelections(currentSelection, nextSelection) {
   return Array.from(new Set([...currentSelection, ...nextSelection]));
 }
 
+function areShapeIdListsEqual(left = [], right = []) {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((shapeId, index) => shapeId === right[index]);
+}
+
+function getShapesBoundsFromList(shapes = []) {
+  return shapes.reduce((bounds, shape) => {
+    const shapeBounds = getShapeBounds(shape);
+
+    if (!shapeBounds) {
+      return bounds;
+    }
+
+    if (!bounds) {
+      return { ...shapeBounds };
+    }
+
+    return {
+      minX: Math.min(bounds.minX, shapeBounds.minX),
+      maxX: Math.max(bounds.maxX, shapeBounds.maxX),
+      minY: Math.min(bounds.minY, shapeBounds.minY),
+      maxY: Math.max(bounds.maxY, shapeBounds.maxY),
+    };
+  }, null);
+}
+
 function distanceInSurface(left, right, surfaceSize, viewScale = 1) {
   if (!left || !right) {
     return Number.POSITIVE_INFINITY;
@@ -1097,8 +1397,8 @@ function getTransformOverlayRect(bounds, surfaceSize, viewOffset = { x: 0, y: 0 
 }
 
 function getTransformPopoverStyle(overlay, surfaceSize) {
-  const width = 264;
-  const height = 44;
+  const width = 260;
+  const height = 82;
   const margin = 12;
   const maxLeft = Math.max(margin, surfaceSize.width - width - margin);
   const left = clamp(overlay.centerX - width * 0.5, margin, maxLeft);
@@ -1112,6 +1412,155 @@ function getTransformPopoverStyle(overlay, surfaceSize) {
     left: `${left}px`,
     top: `${top}px`,
   };
+}
+
+function getBoundsCenter(bounds) {
+  if (!bounds) {
+    return null;
+  }
+
+  return {
+    x: (bounds.minX + bounds.maxX) * 0.5,
+    y: (bounds.minY + bounds.maxY) * 0.5,
+  };
+}
+
+function createTransformQuadFromBounds(bounds) {
+  if (!bounds) {
+    return null;
+  }
+
+  return {
+    nw: { x: bounds.minX, y: bounds.minY },
+    ne: { x: bounds.maxX, y: bounds.minY },
+    se: { x: bounds.maxX, y: bounds.maxY },
+    sw: { x: bounds.minX, y: bounds.maxY },
+  };
+}
+
+function cloneTransformQuad(quad) {
+  if (!quad) {
+    return null;
+  }
+
+  return {
+    nw: { ...quad.nw },
+    ne: { ...quad.ne },
+    se: { ...quad.se },
+    sw: { ...quad.sw },
+  };
+}
+
+function moveTransformQuad(quad, delta) {
+  if (!quad || !delta) {
+    return quad;
+  }
+
+  return {
+    nw: { x: quad.nw.x + delta.x, y: quad.nw.y + delta.y },
+    ne: { x: quad.ne.x + delta.x, y: quad.ne.y + delta.y },
+    se: { x: quad.se.x + delta.x, y: quad.se.y + delta.y },
+    sw: { x: quad.sw.x + delta.x, y: quad.sw.y + delta.y },
+  };
+}
+
+function getTransformQuadOverlay(quad, surfaceSize, viewOffset = { x: 0, y: 0 }, viewScale = 1) {
+  if (!quad) {
+    return null;
+  }
+
+  return {
+    nw: toScreenPoint(quad.nw, surfaceSize, viewOffset, viewScale),
+    ne: toScreenPoint(quad.ne, surfaceSize, viewOffset, viewScale),
+    se: toScreenPoint(quad.se, surfaceSize, viewOffset, viewScale),
+    sw: toScreenPoint(quad.sw, surfaceSize, viewOffset, viewScale),
+  };
+}
+
+function getTransformRectFromQuadOverlay(quadOverlay) {
+  if (!quadOverlay) {
+    return null;
+  }
+
+  const points = [quadOverlay.nw, quadOverlay.ne, quadOverlay.se, quadOverlay.sw];
+  const xs = points.map((point) => point.x);
+  const ys = points.map((point) => point.y);
+  const left = Math.min(...xs);
+  const right = Math.max(...xs);
+  const top = Math.min(...ys);
+  const bottom = Math.max(...ys);
+
+  return {
+    bottom,
+    centerX: (left + right) * 0.5,
+    height: Math.max(1, bottom - top),
+    left,
+    right,
+    top,
+    width: Math.max(1, right - left),
+  };
+}
+
+function getTransformQuadPath(quadOverlay) {
+  if (!quadOverlay) {
+    return '';
+  }
+
+  return `M ${quadOverlay.nw.x} ${quadOverlay.nw.y} L ${quadOverlay.ne.x} ${quadOverlay.ne.y} L ${quadOverlay.se.x} ${quadOverlay.se.y} L ${quadOverlay.sw.x} ${quadOverlay.sw.y} Z`;
+}
+
+function getAngleBetweenPoints(centerPoint, point) {
+  if (!centerPoint || !point) {
+    return 0;
+  }
+
+  return Math.atan2(point.y - centerPoint.y, point.x - centerPoint.x);
+}
+
+function toScreenPoint(point, surfaceSize, viewOffset = { x: 0, y: 0 }, viewScale = 1) {
+  return {
+    x: point.x * surfaceSize.width * viewScale + viewOffset.x,
+    y: point.y * surfaceSize.height * viewScale + viewOffset.y,
+  };
+}
+
+function isPointInsideBounds(point, bounds) {
+  if (!point || !bounds) {
+    return false;
+  }
+
+  return (
+    point.x >= bounds.minX &&
+    point.x <= bounds.maxX &&
+    point.y >= bounds.minY &&
+    point.y <= bounds.maxY
+  );
+}
+
+function isPointInQuad(point, quad) {
+  if (!point || !quad) {
+    return false;
+  }
+
+  const points = [quad.nw, quad.ne, quad.se, quad.sw];
+  let isInside = false;
+
+  for (let index = 0, previousIndex = points.length - 1; index < points.length; previousIndex = index, index += 1) {
+    const currentPoint = points[index];
+    const previousPoint = points[previousIndex];
+    const intersects =
+      (currentPoint.y > point.y) !== (previousPoint.y > point.y) &&
+      point.x <
+        ((previousPoint.x - currentPoint.x) * (point.y - currentPoint.y)) /
+          (previousPoint.y - currentPoint.y) +
+          currentPoint.x;
+
+    if (intersects) {
+      isInside = !isInside;
+    }
+  }
+
+  return isInside;
 }
 
 function getDestroyPreviewRect(point, brushCells, surfaceSize, viewOffset = { x: 0, y: 0 }, viewScale = 1) {

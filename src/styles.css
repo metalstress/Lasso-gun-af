@@ -1477,7 +1477,8 @@ input[type="range"] {
 
 .drawing-canvas[data-editor-mode="select"],
 .drawing-canvas[data-editor-mode="edit"],
-.drawing-canvas[data-editor-mode="transform"] {
+.drawing-canvas[data-editor-mode="transform"],
+.drawing-canvas[data-editor-mode="transform-plus"] {
   cursor: default;
 }
 
@@ -1524,6 +1525,46 @@ input[type="range"] {
   border-radius: inherit;
   border: 1px dashed rgba(255, 255, 255, 0.2);
   opacity: 0.8;
+}
+
+.canvas-transform-rotate-stem {
+  position: absolute;
+  top: -24px;
+  left: 50%;
+  width: 1px;
+  height: 18px;
+  transform: translateX(-50%);
+  background: rgba(192, 255, 104, 0.7);
+  box-shadow: 0 0 12px rgba(192, 255, 104, 0.18);
+}
+
+.canvas-transform-plus-box {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 6;
+}
+
+.canvas-transform-plus-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.canvas-transform-plus-path {
+  fill: rgba(192, 255, 104, 0.04);
+  stroke: rgba(192, 255, 104, 0.92);
+  stroke-width: 1.2;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 16px rgba(192, 255, 104, 0.18));
+}
+
+.canvas-transform-plus-path-secondary {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.24);
+  stroke-dasharray: 5 4;
 }
 
 .canvas-transform-handle {
@@ -1589,10 +1630,31 @@ input[type="range"] {
   cursor: ew-resize;
 }
 
+.canvas-transform-handle.handle-rotate {
+  top: -24px;
+  left: 50%;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  cursor: grab;
+}
+
+.canvas-transform-handle.handle-rotate:active {
+  cursor: grabbing;
+}
+
+.canvas-transform-plus-handle {
+  cursor: grab;
+}
+
+.canvas-transform-plus-handle:active {
+  cursor: grabbing;
+}
+
 .canvas-transform-popover {
   position: absolute;
-  display: inline-flex;
-  align-items: center;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   padding: 8px;
   border-radius: 14px;
@@ -1614,7 +1676,10 @@ input[type="range"] {
 }
 
 .canvas-transform-action {
-  min-height: 28px;
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 0 12px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 999px;

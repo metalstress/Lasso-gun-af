@@ -9,9 +9,12 @@ import {
   BOOLEAN_UNION,
   BOOLEAN_XOR,
   alignShapeToBounds,
+  cleanupShapeDuplicateVertices,
   createShapeFromDraft,
+  createShapeFromPolygons,
   deleteShapeVertices,
   deleteShapeVerticesAndSelectNext,
+  distortShapeFromQuad,
   duplicateShapes,
   eraseShapesWithSquare,
   flattenShapes,
@@ -20,11 +23,17 @@ import {
   listEditableHandles,
   mirrorShape,
   moveShape,
+  reorderShapesZOrder,
+  rotateShapeAroundPoint,
   runBooleanOperation,
   scaleShapeFromBounds,
   toggleShapeVerticesSharpCorner,
   ungroupShapes,
   updateShapeVertex,
+  Z_ORDER_BRING_FORWARD,
+  Z_ORDER_BRING_TO_FRONT,
+  Z_ORDER_SEND_BACKWARD,
+  Z_ORDER_SEND_TO_BACK,
 } from './shapes.js';
 import { CORNER_TYPE_SHARP } from './rounded-path.js';
 
@@ -111,6 +120,36 @@ describe('shape helpers', () => {
     expect(duplicate.polygons[0][0][0].x).toBeCloseTo(0.3);
     expect(duplicate.polygons[0][0][0].y).toBeCloseTo(0.25);
     expect(original.polygons[0][0][0]).toEqual({ x: 0.2, y: 0.2 });
+  });
+
+  it('reorders selected shapes through z-order actions', () => {
+    const shapeA = createShapeFromPolygons(
+      [[[ { x: 0.1, y: 0.1 }, { x: 0.2, y: 0.1 }, { x: 0.2, y: 0.2 } ]]],
+      { name: 'A' },
+    );
+    const shapeB = createShapeFromPolygons(
+      [[[ { x: 0.3, y: 0.1 }, { x: 0.4, y: 0.1 }, { x: 0.4, y: 0.2 } ]]],
+      { name: 'B' },
+    );
+    const shapeC = createShapeFromPolygons(
+      [[[ { x: 0.5, y: 0.1 }, { x: 0.6, y: 0.1 }, { x: 0.6, y: 0.2 } ]]],
+      { name: 'C' },
+    );
+    const shapeD = createShapeFromPolygons(
+      [[[ { x: 0.7, y: 0.1 }, { x: 0.8, y: 0.1 }, { x: 0.8, y: 0.2 } ]]],
+      { name: 'D' },
+    );
+    const shapes = [shapeA, shapeB, shapeC, shapeD];
+
+    const forward = reorderShapesZOrder(shapes, [shapeB.id], Z_ORDER_BRING_FORWARD);
+    const backward = reorderShapesZOrder(shapes, [shapeC.id], Z_ORDER_SEND_BACKWARD);
+    const toFront = reorderShapesZOrder(shapes, [shapeA.id, shapeC.id], Z_ORDER_BRING_TO_FRONT);
+    const toBack = reorderShapesZOrder(shapes, [shapeB.id, shapeD.id], Z_ORDER_SEND_TO_BACK);
+
+    expect(forward.map((shape) => shape.name)).toEqual(['A', 'C', 'B', 'D']);
+    expect(backward.map((shape) => shape.name)).toEqual(['A', 'C', 'B', 'D']);
+    expect(toFront.map((shape) => shape.name)).toEqual(['B', 'D', 'A', 'C']);
+    expect(toBack.map((shape) => shape.name)).toEqual(['B', 'D', 'A', 'C']);
   });
 
   it('inserts a new vertex into an editable contour', () => {
@@ -227,6 +266,29 @@ describe('shape helpers', () => {
     expect(shifted.polygons[0][0][2].y).toBeCloseTo(-0.05);
   });
 
+  it('removes near-duplicate points from editable shapes', () => {
+    const shape = createShapeFromPolygons([
+      [
+        [
+          { x: 0.2, y: 0.2 },
+          { x: 0.202, y: 0.202 },
+          { x: 0.4, y: 0.2 },
+          { x: 0.4, y: 0.4 },
+          { x: 0.2, y: 0.4 },
+        ],
+      ],
+    ]);
+
+    const cleaned = cleanupShapeDuplicateVertices(shape, { width: 1000, height: 1000 });
+
+    expect(cleaned.polygons[0][0]).toEqual([
+      { x: 0.2, y: 0.2 },
+      { x: 0.4, y: 0.2 },
+      { x: 0.4, y: 0.4 },
+      { x: 0.2, y: 0.4 },
+    ]);
+  });
+
   it('aligns a shape to shared selection edges', () => {
     let classic = setDrawMode(clear(), DRAW_MODE_CLASSIC);
     classic = addPoint(classic, POINT_KIND_A, { x: 0.3, y: 0.25 });
@@ -299,6 +361,55 @@ describe('shape helpers', () => {
     expect(scaled.polygons[0][0][1].y).toBeCloseTo(0.2);
     expect(scaled.polygons[0][0][2].x).toBeCloseTo(0.4);
     expect(scaled.polygons[0][0][2].y).toBeCloseTo(0.65);
+  });
+
+  it('distorts a shape through independent transform corners', () => {
+    let classic = setDrawMode(clear(), DRAW_MODE_CLASSIC);
+    classic = addPoint(classic, POINT_KIND_A, { x: 0.2, y: 0.2 });
+    classic = addPoint(classic, POINT_KIND_A, { x: 0.4, y: 0.2 });
+    classic = addPoint(classic, POINT_KIND_A, { x: 0.4, y: 0.4 });
+    classic = addPoint(classic, POINT_KIND_A, { x: 0.2, y: 0.4 });
+
+    const shape = createShapeFromDraft(classic);
+    const distorted = distortShapeFromQuad(
+      shape,
+      { minX: 0.2, maxX: 0.4, minY: 0.2, maxY: 0.4 },
+      {
+        nw: { x: 0.18, y: 0.22 },
+        ne: { x: 0.46, y: 0.18 },
+        se: { x: 0.43, y: 0.47 },
+        sw: { x: 0.16, y: 0.41 },
+      },
+    );
+
+    expect(distorted.polygons[0][0][0].x).toBeCloseTo(0.18);
+    expect(distorted.polygons[0][0][0].y).toBeCloseTo(0.22);
+    expect(distorted.polygons[0][0][1].x).toBeCloseTo(0.46);
+    expect(distorted.polygons[0][0][1].y).toBeCloseTo(0.18);
+    expect(distorted.polygons[0][0][2].x).toBeCloseTo(0.43);
+    expect(distorted.polygons[0][0][2].y).toBeCloseTo(0.47);
+    expect(distorted.polygons[0][0][3].x).toBeCloseTo(0.16);
+    expect(distorted.polygons[0][0][3].y).toBeCloseTo(0.41);
+  });
+
+  it('rotates a shape around the shared pivot point', () => {
+    let classic = setDrawMode(clear(), DRAW_MODE_CLASSIC);
+    classic = addPoint(classic, POINT_KIND_A, { x: 0.2, y: 0.2 });
+    classic = addPoint(classic, POINT_KIND_A, { x: 0.4, y: 0.2 });
+    classic = addPoint(classic, POINT_KIND_A, { x: 0.4, y: 0.4 });
+    classic = addPoint(classic, POINT_KIND_A, { x: 0.2, y: 0.4 });
+
+    const shape = createShapeFromDraft(classic);
+    const rotated = rotateShapeAroundPoint(shape, Math.PI / 2, { x: 0.3, y: 0.3 });
+
+    expect(rotated.polygons[0][0][0].x).toBeCloseTo(0.4);
+    expect(rotated.polygons[0][0][0].y).toBeCloseTo(0.2);
+    expect(rotated.polygons[0][0][1].x).toBeCloseTo(0.4);
+    expect(rotated.polygons[0][0][1].y).toBeCloseTo(0.4);
+    expect(rotated.polygons[0][0][2].x).toBeCloseTo(0.2);
+    expect(rotated.polygons[0][0][2].y).toBeCloseTo(0.4);
+    expect(rotated.polygons[0][0][3].x).toBeCloseTo(0.2);
+    expect(rotated.polygons[0][0][3].y).toBeCloseTo(0.2);
   });
 
   it('mirrors a shape across the selection center', () => {

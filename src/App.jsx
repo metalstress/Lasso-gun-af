@@ -37,6 +37,7 @@ import {
   BOOLEAN_UNION,
   BOOLEAN_XOR,
   alignShapeToBounds,
+  cleanupShapeDuplicateVertices,
   createHandleId,
   createShapeFromDraft,
   createShapeFromPolygons,
@@ -53,11 +54,18 @@ import {
   mirrorShape,
   moveShape,
   moveShapeVertices,
+  reorderShapesZOrder,
+  rotateShapeAroundPoint,
   runBooleanOperation,
   scaleShapeFromBounds,
+  distortShapeFromQuad,
   toggleShapeVerticesSharpCorner,
   ungroupShapes,
   updateShapeVertex,
+  Z_ORDER_BRING_FORWARD,
+  Z_ORDER_BRING_TO_FRONT,
+  Z_ORDER_SEND_BACKWARD,
+  Z_ORDER_SEND_TO_BACK,
 } from './lib/shapes.js';
 import {
   DEFAULT_APPEARANCE,
@@ -84,6 +92,7 @@ const EDITOR_MODE_DRAW = 'draw';
 const EDITOR_MODE_SELECT = 'select';
 const EDITOR_MODE_DESTROY = 'destroy';
 const EDITOR_MODE_TRANSFORM = 'transform';
+const EDITOR_MODE_TRANSFORM_PLUS = 'transform-plus';
 const EDITOR_MODE_EDIT = 'edit';
 const PREFERENCES_TAB_TOOLS = 'tools';
 const PREFERENCES_TAB_UI_THEME = 'ui-theme';
@@ -272,6 +281,12 @@ function App() {
       const isCopy = hasModifier && !event.shiftKey && (event.code === 'KeyC' || normalizedKey === 'c');
       const isCut = hasModifier && !event.shiftKey && (event.code === 'KeyX' || normalizedKey === 'x');
       const isPaste = hasModifier && !event.shiftKey && (event.code === 'KeyV' || normalizedKey === 'v');
+      const isBringForward = hasModifier && !event.shiftKey && event.code === 'BracketRight';
+      const isSendBackward = hasModifier && !event.shiftKey && event.code === 'BracketLeft';
+      const isBringToFront =
+        !hasModifier && !event.altKey && !event.shiftKey && event.code === 'BracketRight';
+      const isSendToBack =
+        !hasModifier && !event.altKey && !event.shiftKey && event.code === 'BracketLeft';
       const isDelete = event.key === 'Delete' || event.key === 'Backspace';
       const isOverlayOpen = isExportOpen || isPreferencesOpen;
 
@@ -325,6 +340,34 @@ function App() {
         return;
       }
 
+      if (!isTextEntry && !isOverlayOpen && isBringForward) {
+        if (handleReorderSelectedShapes(Z_ORDER_BRING_FORWARD)) {
+          event.preventDefault();
+        }
+        return;
+      }
+
+      if (!isTextEntry && !isOverlayOpen && isSendBackward) {
+        if (handleReorderSelectedShapes(Z_ORDER_SEND_BACKWARD)) {
+          event.preventDefault();
+        }
+        return;
+      }
+
+      if (!isTextEntry && !isOverlayOpen && isBringToFront) {
+        if (handleReorderSelectedShapes(Z_ORDER_BRING_TO_FRONT)) {
+          event.preventDefault();
+        }
+        return;
+      }
+
+      if (!isTextEntry && !isOverlayOpen && isSendToBack) {
+        if (handleReorderSelectedShapes(Z_ORDER_SEND_TO_BACK)) {
+          event.preventDefault();
+        }
+        return;
+      }
+
       if (!isFormField && !isOverlayOpen && !hasModifier && !event.altKey) {
         const nudgeDirection = getArrowDirection(event.code);
 
@@ -338,7 +381,11 @@ function App() {
 
       if (!isFormField && !hasModifier && !event.altKey && !event.shiftKey) {
         if (event.key === 'Enter') {
-          if (!isOverlayOpen && activeEditorMode === EDITOR_MODE_TRANSFORM) {
+          if (
+            !isOverlayOpen &&
+            (activeEditorMode === EDITOR_MODE_TRANSFORM ||
+              activeEditorMode === EDITOR_MODE_TRANSFORM_PLUS)
+          ) {
             event.preventDefault();
             hideToolbarTooltip();
             handleEditorModeChange(EDITOR_MODE_SELECT);
@@ -636,8 +683,11 @@ function App() {
   const isMoveMode = activeEditorMode === EDITOR_MODE_SELECT;
   const isDestroyMode = activeEditorMode === EDITOR_MODE_DESTROY;
   const isTransformMode = activeEditorMode === EDITOR_MODE_TRANSFORM;
+  const isTransformPlusMode = activeEditorMode === EDITOR_MODE_TRANSFORM_PLUS;
   const isSelectionWorkflow =
-    activeEditorMode === EDITOR_MODE_SELECT || activeEditorMode === EDITOR_MODE_TRANSFORM;
+    activeEditorMode === EDITOR_MODE_SELECT ||
+    activeEditorMode === EDITOR_MODE_TRANSFORM ||
+    activeEditorMode === EDITOR_MODE_TRANSFORM_PLUS;
   const destroyBrushStepIndex = getDestroyBrushStepIndex(destroyBrushCells);
   const currentShapePresetOption =
     PRESET_SHAPE_OPTIONS.find((option) => option.value === shapePresetKind) ?? PRESET_SHAPE_OPTIONS[0];
@@ -740,8 +790,10 @@ function App() {
 
   const canRunBoolean = selectedShapeIds.length >= 2;
   const canDeleteSelection = selectedShapeIds.length > 0;
+  const canReorderSelection = selectedShapeIds.length > 0;
   const canDeleteSelectedHandles = selectedHandleLocations.length > 0;
   const canResetSnapToGrid = hasDraftPoints || shapes.length > 0;
+  const canCleanupShapePoints = shapes.length > 0;
   const uiThemeStyle = getUiThemeStyle(theme, customUiTheme);
   const isMobileDrawMode = isMobileLayout && activeEditorMode === EDITOR_MODE_DRAW;
   const showMobileTouchToggle =
@@ -1169,6 +1221,42 @@ function App() {
       drawingState: snapDrawingStateToGrid(snapshot.drawingState, surfaceSize),
       shapes: snapShapesToGrid(snapshot.shapes, surfaceSize),
     }));
+  };
+
+  const handleCleanupShapePoints = () => {
+    hideToolbarTooltip();
+    commitHistoryChange((snapshot) => {
+      if (snapshot.shapes.length === 0) {
+        return snapshot;
+      }
+
+      const selectedSet =
+        snapshot.selectedShapeIds.length > 0 ? new Set(snapshot.selectedShapeIds) : null;
+      let didChange = false;
+      const nextShapes = snapshot.shapes.map((shape) => {
+        if (selectedSet && !selectedSet.has(shape.id)) {
+          return shape;
+        }
+
+        const nextShape = cleanupShapeDuplicateVertices(shape, surfaceSize);
+
+        if (nextShape !== shape) {
+          didChange = true;
+        }
+
+        return nextShape;
+      });
+
+      if (!didChange) {
+        return snapshot;
+      }
+
+      return {
+        ...snapshot,
+        selectedHandleIds: [],
+        shapes: nextShapes,
+      };
+    });
   };
 
   const openPreferencesPanel = (tab = PREFERENCES_TAB_TOOLS) => {
@@ -1760,6 +1848,51 @@ function App() {
     );
   };
 
+  const handleRotateShapes = (shapeIds, baseShapes, pivotPoint, angleRadians) => {
+    if (!pivotPoint || shapeIds.length === 0 || baseShapes.length === 0) {
+      return;
+    }
+
+    if (!Number.isFinite(angleRadians) || Math.abs(angleRadians) <= Number.EPSILON) {
+      return;
+    }
+
+    gestureHasChangesRef.current = true;
+    const baseShapeMap = new Map(baseShapes.map((shape) => [shape.id, shape]));
+
+    setShapes((current) =>
+      current.map((shape) => {
+        if (!shapeIds.includes(shape.id)) {
+          return shape;
+        }
+
+        const baseShape = baseShapeMap.get(shape.id) ?? shape;
+        const rotatedShape = rotateShapeAroundPoint(baseShape, angleRadians, pivotPoint);
+        return snapToGrid ? snapShapesToGrid([rotatedShape], surfaceSize)[0] : rotatedShape;
+      }),
+    );
+  };
+
+  const handleTransformPlusShapes = (shapeIds, baseShapes, sourceBounds, targetQuad) => {
+    if (!sourceBounds || !targetQuad || shapeIds.length === 0 || baseShapes.length === 0) {
+      return;
+    }
+
+    gestureHasChangesRef.current = true;
+    const baseShapeMap = new Map(baseShapes.map((shape) => [shape.id, shape]));
+
+    setShapes((current) =>
+      current.map((shape) => {
+        if (!shapeIds.includes(shape.id)) {
+          return shape;
+        }
+
+        const baseShape = baseShapeMap.get(shape.id) ?? shape;
+        return distortShapeFromQuad(baseShape, sourceBounds, targetQuad);
+      }),
+    );
+  };
+
   const handleMirrorSelectedShapes = (axis) => {
     if (selectedShapeIds.length === 0 || !selectedShapesBounds) {
       return false;
@@ -1822,6 +1955,41 @@ function App() {
       };
     });
 
+    return true;
+  };
+
+  const handleReorderSelectedShapes = (action) => {
+    if (selectedShapeIds.length === 0) {
+      return false;
+    }
+
+    let didChange = false;
+
+    commitHistoryChange((snapshot) => {
+      if (snapshot.selectedShapeIds.length === 0) {
+        return snapshot;
+      }
+
+      const nextShapes = reorderShapesZOrder(snapshot.shapes, snapshot.selectedShapeIds, action);
+
+      if (nextShapes === snapshot.shapes) {
+        return snapshot;
+      }
+
+      didChange = true;
+
+      return {
+        ...snapshot,
+        selectedHandleIds: [],
+        shapes: nextShapes,
+      };
+    });
+
+    if (!didChange) {
+      return false;
+    }
+
+    setViewportContextMenu(CLOSED_VIEWPORT_CONTEXT_MENU);
     return true;
   };
 
@@ -1963,11 +2131,11 @@ function App() {
         />
 
         <main className="workspace" ref={workspaceRef}>
-            <DrawingCanvas
-              appearance={appearance}
-              destroyBrushCells={destroyBrushCells}
-              editorMode={activeEditorMode}
-              isSequentialDualPoint={isSequentialDualPoint}
+          <DrawingCanvas
+            appearance={appearance}
+            destroyBrushCells={destroyBrushCells}
+            editorMode={activeEditorMode}
+            isSequentialDualPoint={isSequentialDualPoint}
             onDuplicateShapeDragStart={handleDuplicateShapesForDrag}
             isDraftActive={isDraftActive}
             isDraftReady={isFinishShapeReady}
@@ -1976,10 +2144,12 @@ function App() {
             onEndHistoryGesture={endHistoryGesture}
             onMoveShape={handleMoveShape}
             onMoveShapeVertices={handleMoveShapeVertices}
-              onDestroyShapes={handleDestroyShapes}
-              onEditorModeChange={handleEditorModeChange}
-              onTransformShapes={handleTransformShapes}
-              onMirrorSelection={handleMirrorSelectedShapes}
+            onDestroyShapes={handleDestroyShapes}
+            onEditorModeChange={handleEditorModeChange}
+            onTransformShapes={handleTransformShapes}
+            onRotateShapes={handleRotateShapes}
+            onTransformPlusShapes={handleTransformPlusShapes}
+            onMirrorSelection={handleMirrorSelectedShapes}
             onInsertShapeVertex={handleInsertShapeVertex}
             onPlacePoint={handlePlacePoint}
             onPointerChange={handlePointerChange}
@@ -2391,6 +2561,14 @@ function App() {
                     >
                       Reset Snap2Grid
                     </button>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      disabled={!canCleanupShapePoints}
+                      onClick={handleCleanupShapePoints}
+                    >
+                      Remove Close Points
+                    </button>
                   </div>
                 </div>
               </section>
@@ -2452,6 +2630,14 @@ function App() {
                 onClick={handleResetSnapToGrid}
               >
                 Reset Snap2Grid
+              </button>
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={!canCleanupShapePoints}
+                onClick={handleCleanupShapePoints}
+              >
+                Remove Close Points
               </button>
               <button
                 type="button"
@@ -2810,7 +2996,10 @@ function App() {
           canDelete={canDeleteSelection}
           canJump={selectedShapes.length > 0}
           canPaste={hasClipboardShapes}
+          canReorder={canReorderSelection}
           canUngroup={canUngroupSelection}
+          onBringForward={() => handleReorderSelectedShapes(Z_ORDER_BRING_FORWARD)}
+          onBringToFront={() => handleReorderSelectedShapes(Z_ORDER_BRING_TO_FRONT)}
           isOpen={viewportContextMenu.isOpen}
           menuRef={contextMenuRef}
           onCopy={handleCopySelectedShapes}
@@ -2818,6 +3007,8 @@ function App() {
           onDelete={handleDeleteSelectedShapes}
           onJump={handleJumpToSelection}
           onPaste={handlePasteShapes}
+          onSendBackward={() => handleReorderSelectedShapes(Z_ORDER_SEND_BACKWARD)}
+          onSendToBack={() => handleReorderSelectedShapes(Z_ORDER_SEND_TO_BACK)}
           onUngroup={handleUngroupSelectedShapes}
           x={viewportContextMenu.x}
           y={viewportContextMenu.y}
@@ -3111,14 +3302,19 @@ function ViewportContextMenu({
   canDelete,
   canJump,
   canPaste,
+  canReorder,
   canUngroup,
   isOpen,
   menuRef,
+  onBringForward,
+  onBringToFront,
   onCopy,
   onCut,
   onDelete,
   onJump,
   onPaste,
+  onSendBackward,
+  onSendToBack,
   onUngroup,
   x,
   y,
@@ -3137,6 +3333,10 @@ function ViewportContextMenu({
       <ContextMenuItem disabled={!canCopy} hint="Ctrl/Cmd+C" label="Copy" onClick={onCopy} />
       <ContextMenuItem disabled={!canPaste} hint="Ctrl/Cmd+V" label="Paste" onClick={onPaste} />
       <ContextMenuItem disabled={!canCopy} hint="Ctrl/Cmd+X" label="Cut" onClick={onCut} />
+      <ContextMenuItem disabled={!canReorder} hint="Ctrl/Cmd+]" label="Bring Forward" onClick={onBringForward} />
+      <ContextMenuItem disabled={!canReorder} hint="Ctrl/Cmd+[" label="Send Backward" onClick={onSendBackward} />
+      <ContextMenuItem disabled={!canReorder} hint="]" label="Bring To Front" onClick={onBringToFront} />
+      <ContextMenuItem disabled={!canReorder} hint="[" label="Send To Back" onClick={onSendToBack} />
       <ContextMenuItem disabled={!canJump} hint="" label="Jump2" onClick={onJump} />
       <ContextMenuItem disabled={!canUngroup} hint="Ctrl/Cmd+Shift+G" label="Ungroup" onClick={onUngroup} />
       <ContextMenuItem disabled={!canDelete} hint="Delete" label="Delete" onClick={onDelete} />
@@ -3578,6 +3778,10 @@ function getWorkflowLabel(editorMode) {
     return 'Transform';
   }
 
+  if (mode === EDITOR_MODE_TRANSFORM_PLUS) {
+    return 'Transform+';
+  }
+
   return 'Draw';
 }
 
@@ -3618,14 +3822,33 @@ function getHowToBallContent({
       items: limitHowToBallItems([
         createHowToBallItem('transform-drag-shape', ['Drag Shape'], 'move the current selection'),
         createHowToBallItem('transform-drag-box', ['Drag Handle'], 'scale the selection from the bbox'),
+        createHowToBallItem('transform-rotate', ['Drag Rotate'], 'spin the selection around its center'),
         createHowToBallItem('transform-mirror', ['Mirror X/Y'], 'flip the selection from the popup'),
+        createHowToBallItem('transform-plus-switch', ['Transform+'], 'switch to free corner distortion'),
         createHowToBallItem('transform-wheel', ['Wheel'], 'zoom the viewport'),
         createHowToBallItem('transform-pan', ['Space', 'LMB'], 'move around canvas'),
       ]),
       status:
         selectedShapeCount > 0
-          ? 'Transform mode is live. Drag the bbox handles or tap Mirror X / Mirror Y under the selection.'
+          ? 'Transform mode is live. Drag bbox handles to scale, grab the top handle to rotate, or use the popup tools.'
           : 'Transform mode is armed. Select a shape to spawn the bounding box.',
+    };
+  }
+
+  if (activeEditorMode === EDITOR_MODE_TRANSFORM_PLUS) {
+    return {
+      isWarning: false,
+      items: limitHowToBallItems([
+        createHowToBallItem('transform-plus-drag-corner', ['Drag Corner'], 'distort one corner without pulling the others'),
+        createHowToBallItem('transform-plus-shape', ['Drag Shape'], 'move the current selection'),
+        createHowToBallItem('transform-plus-switch', ['Transform'], 'switch back to bbox scaling'),
+        createHowToBallItem('transform-plus-enter', ['Enter'], 'finish Transform+'),
+        createHowToBallItem('transform-plus-pan', ['Space', 'LMB'], 'move around canvas'),
+      ]),
+      status:
+        selectedShapeCount > 0
+          ? 'Transform+ is live. Drag the four corners for Photoshop-style free distortion.'
+          : 'Transform+ is armed. Select a shape to spawn the free-corner frame.',
     };
   }
 
@@ -3813,6 +4036,10 @@ function normalizeEditorMode(editorMode) {
     return EDITOR_MODE_TRANSFORM;
   }
 
+  if (editorMode === EDITOR_MODE_TRANSFORM_PLUS) {
+    return EDITOR_MODE_TRANSFORM_PLUS;
+  }
+
   if (editorMode === EDITOR_MODE_EDIT) {
     return EDITOR_MODE_SELECT;
   }
@@ -3942,8 +4169,8 @@ function getViewportContextMenuPosition(clientX, clientY) {
   }
 
   const inset = 12;
-  const width = 220;
-  const height = 232;
+  const width = 236;
+  const height = 392;
 
   return {
     x: Math.min(window.innerWidth - width - inset, Math.max(inset, clientX)),

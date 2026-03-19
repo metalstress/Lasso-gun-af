@@ -17,6 +17,10 @@ export const ALIGN_TOP = 'top';
 export const ALIGN_BOTTOM = 'bottom';
 export const ALIGN_CENTER_X = 'center-x';
 export const ALIGN_CENTER_Y = 'center-y';
+export const Z_ORDER_BRING_FORWARD = 'bring-forward';
+export const Z_ORDER_SEND_BACKWARD = 'send-backward';
+export const Z_ORDER_BRING_TO_FRONT = 'bring-to-front';
+export const Z_ORDER_SEND_TO_BACK = 'send-to-back';
 
 let shapeCounter = 0;
 let groupCounter = 0;
@@ -156,6 +160,76 @@ export function moveShapeVertices(shape, locations, delta) {
         }),
       ),
     ),
+  };
+}
+
+export function cleanupShapeDuplicateVertices(
+  shape,
+  surfaceSize,
+  thresholdPx = GRID_STEP_PX * 0.35,
+) {
+  if (
+    !shape ||
+    !isShapeEditable(shape) ||
+    !surfaceSize?.width ||
+    !surfaceSize?.height
+  ) {
+    return shape;
+  }
+
+  const minDistancePx = Math.max(1, Number(thresholdPx) || 0);
+  let didChange = false;
+  const handleRemap = new Map();
+  const nextPolygons = [];
+
+  shape.polygons.forEach((polygon, polygonIndex) => {
+    const nextPolygon = [];
+
+    polygon.forEach((ring, ringIndex) => {
+      const cleanedRing = cleanupRingNearDuplicateVertices(ring, surfaceSize, minDistancePx);
+      const targetRing = cleanedRing.points;
+
+      if (cleanedRing.changed) {
+        didChange = true;
+      }
+
+      if (targetRing.length < 3) {
+        if (cleanedRing.changed) {
+          didChange = true;
+        }
+        return;
+      }
+
+      const nextPolygonIndex = nextPolygons.length;
+      const nextRingIndex = nextPolygon.length;
+
+      targetRing.forEach((entry, pointIndex) => {
+        handleRemap.set(
+          createHandleId({ polygonIndex, ringIndex, pointIndex: entry.sourceIndex }),
+          createHandleId({
+            polygonIndex: nextPolygonIndex,
+            ringIndex: nextRingIndex,
+            pointIndex,
+          }),
+        );
+      });
+
+      nextPolygon.push(targetRing.map((entry) => entry.point));
+    });
+
+    if (nextPolygon.length > 0) {
+      nextPolygons.push(nextPolygon);
+    }
+  });
+
+  if (!didChange || nextPolygons.length === 0) {
+    return shape;
+  }
+
+  return {
+    ...shape,
+    cornerOverrides: remapCornerOverrides(shape.cornerOverrides, handleRemap),
+    polygons: nextPolygons,
   };
 }
 
@@ -299,6 +373,66 @@ export function scaleShapeFromBounds(shape, sourceBounds, targetBounds) {
   };
 }
 
+export function distortShapeFromQuad(shape, sourceBounds, targetQuad) {
+  if (!shape || !sourceBounds || !isValidTransformQuad(targetQuad)) {
+    return shape;
+  }
+
+  const transform = buildRectToQuadHomography(sourceBounds, targetQuad);
+
+  if (!transform) {
+    return shape;
+  }
+
+  return {
+    ...shape,
+    polygons: shape.polygons.map((polygon) =>
+      polygon.map((ring) =>
+        ring.map((point) => {
+          const nextPoint = transformPointWithHomography(point, transform);
+
+          return {
+            x: normalizeCoordinate(nextPoint.x),
+            y: normalizeCoordinate(nextPoint.y),
+          };
+        }),
+      ),
+    ),
+  };
+}
+
+export function rotateShapeAroundPoint(shape, angleRadians, pivotPoint) {
+  if (!shape || !pivotPoint) {
+    return shape;
+  }
+
+  const angle = Number(angleRadians);
+
+  if (!Number.isFinite(angle) || Math.abs(angle) <= Number.EPSILON) {
+    return shape;
+  }
+
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+
+  return {
+    ...shape,
+    polygons: shape.polygons.map((polygon) =>
+      polygon.map((ring) =>
+        ring.map((point) => {
+          const translatedX = point.x - pivotPoint.x;
+          const translatedY = point.y - pivotPoint.y;
+
+          return {
+            x: normalizeCoordinate(pivotPoint.x + translatedX * cos - translatedY * sin),
+            y: normalizeCoordinate(pivotPoint.y + translatedX * sin + translatedY * cos),
+          };
+        }),
+      ),
+    ),
+  };
+}
+
 export function mirrorShape(shape, axis, bounds) {
   if (!shape || !bounds || (axis !== 'x' && axis !== 'y')) {
     return shape;
@@ -318,6 +452,64 @@ export function mirrorShape(shape, axis, bounds) {
       ),
     ),
   };
+}
+
+export function reorderShapesZOrder(shapes, targetShapeIds = [], action) {
+  if (!Array.isArray(shapes) || shapes.length === 0 || !Array.isArray(targetShapeIds)) {
+    return shapes;
+  }
+
+  const targetSet = new Set(targetShapeIds);
+
+  if (targetSet.size === 0) {
+    return shapes;
+  }
+
+  if (action === Z_ORDER_BRING_TO_FRONT || action === Z_ORDER_SEND_TO_BACK) {
+    const selectedShapes = shapes.filter((shape) => targetSet.has(shape.id));
+
+    if (selectedShapes.length === 0) {
+      return shapes;
+    }
+
+    const unselectedShapes = shapes.filter((shape) => !targetSet.has(shape.id));
+    const nextShapes =
+      action === Z_ORDER_BRING_TO_FRONT
+        ? [...unselectedShapes, ...selectedShapes]
+        : [...selectedShapes, ...unselectedShapes];
+
+    return areShapeOrdersEqual(shapes, nextShapes) ? shapes : nextShapes;
+  }
+
+  if (action === Z_ORDER_BRING_FORWARD) {
+    const nextShapes = shapes.slice();
+    let didChange = false;
+
+    for (let index = nextShapes.length - 2; index >= 0; index -= 1) {
+      if (targetSet.has(nextShapes[index].id) && !targetSet.has(nextShapes[index + 1].id)) {
+        [nextShapes[index], nextShapes[index + 1]] = [nextShapes[index + 1], nextShapes[index]];
+        didChange = true;
+      }
+    }
+
+    return didChange ? nextShapes : shapes;
+  }
+
+  if (action === Z_ORDER_SEND_BACKWARD) {
+    const nextShapes = shapes.slice();
+    let didChange = false;
+
+    for (let index = 1; index < nextShapes.length; index += 1) {
+      if (targetSet.has(nextShapes[index].id) && !targetSet.has(nextShapes[index - 1].id)) {
+        [nextShapes[index - 1], nextShapes[index]] = [nextShapes[index], nextShapes[index - 1]];
+        didChange = true;
+      }
+    }
+
+    return didChange ? nextShapes : shapes;
+  }
+
+  return shapes;
 }
 
 export function eraseShapesWithSquare(shapes = [], centerPoint, brushCells, surfaceSize) {
@@ -998,6 +1190,24 @@ function cloneShapeSnapshot(shape) {
   };
 }
 
+function areShapeOrdersEqual(leftShapes, rightShapes) {
+  if (leftShapes === rightShapes) {
+    return true;
+  }
+
+  if (!Array.isArray(leftShapes) || !Array.isArray(rightShapes) || leftShapes.length !== rightShapes.length) {
+    return false;
+  }
+
+  for (let index = 0; index < leftShapes.length; index += 1) {
+    if (leftShapes[index]?.id !== rightShapes[index]?.id) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 export function getShapeBounds(shape) {
   const points = shape.polygons.flatMap((polygon) => polygon.flatMap((ring) => ring));
 
@@ -1353,9 +1563,216 @@ function parseHandleId(handleId) {
   };
 }
 
+function isValidTransformQuad(quad) {
+  return Boolean(
+    quad?.nw &&
+      quad?.ne &&
+      quad?.se &&
+      quad?.sw &&
+      [quad.nw, quad.ne, quad.se, quad.sw].every(
+        (point) => Number.isFinite(point.x) && Number.isFinite(point.y),
+      ),
+  );
+}
+
+function buildRectToQuadHomography(sourceBounds, targetQuad) {
+  const sourceWidth = sourceBounds.maxX - sourceBounds.minX;
+  const sourceHeight = sourceBounds.maxY - sourceBounds.minY;
+
+  if (Math.abs(sourceWidth) <= Number.EPSILON || Math.abs(sourceHeight) <= Number.EPSILON) {
+    return null;
+  }
+
+  const sourcePoints = [
+    { x: sourceBounds.minX, y: sourceBounds.minY },
+    { x: sourceBounds.maxX, y: sourceBounds.minY },
+    { x: sourceBounds.maxX, y: sourceBounds.maxY },
+    { x: sourceBounds.minX, y: sourceBounds.maxY },
+  ];
+  const targetPoints = [targetQuad.nw, targetQuad.ne, targetQuad.se, targetQuad.sw];
+  const matrix = [];
+  const vector = [];
+
+  for (let index = 0; index < 4; index += 1) {
+    const source = sourcePoints[index];
+    const target = targetPoints[index];
+
+    matrix.push([
+      source.x,
+      source.y,
+      1,
+      0,
+      0,
+      0,
+      -target.x * source.x,
+      -target.x * source.y,
+    ]);
+    vector.push(target.x);
+
+    matrix.push([
+      0,
+      0,
+      0,
+      source.x,
+      source.y,
+      1,
+      -target.y * source.x,
+      -target.y * source.y,
+    ]);
+    vector.push(target.y);
+  }
+
+  const solution = solveLinearSystem(matrix, vector);
+
+  if (!solution) {
+    return null;
+  }
+
+  return {
+    h11: solution[0],
+    h12: solution[1],
+    h13: solution[2],
+    h21: solution[3],
+    h22: solution[4],
+    h23: solution[5],
+    h31: solution[6],
+    h32: solution[7],
+  };
+}
+
+function solveLinearSystem(matrix, vector) {
+  const size = matrix.length;
+  const system = matrix.map((row, rowIndex) => [...row, vector[rowIndex]]);
+
+  for (let pivotIndex = 0; pivotIndex < size; pivotIndex += 1) {
+    let maxRow = pivotIndex;
+
+    for (let rowIndex = pivotIndex + 1; rowIndex < size; rowIndex += 1) {
+      if (Math.abs(system[rowIndex][pivotIndex]) > Math.abs(system[maxRow][pivotIndex])) {
+        maxRow = rowIndex;
+      }
+    }
+
+    if (Math.abs(system[maxRow][pivotIndex]) <= 1e-12) {
+      return null;
+    }
+
+    if (maxRow !== pivotIndex) {
+      [system[pivotIndex], system[maxRow]] = [system[maxRow], system[pivotIndex]];
+    }
+
+    const pivotValue = system[pivotIndex][pivotIndex];
+
+    for (let columnIndex = pivotIndex; columnIndex <= size; columnIndex += 1) {
+      system[pivotIndex][columnIndex] /= pivotValue;
+    }
+
+    for (let rowIndex = 0; rowIndex < size; rowIndex += 1) {
+      if (rowIndex === pivotIndex) {
+        continue;
+      }
+
+      const factor = system[rowIndex][pivotIndex];
+
+      if (Math.abs(factor) <= Number.EPSILON) {
+        continue;
+      }
+
+      for (let columnIndex = pivotIndex; columnIndex <= size; columnIndex += 1) {
+        system[rowIndex][columnIndex] -= factor * system[pivotIndex][columnIndex];
+      }
+    }
+  }
+
+  return system.map((row) => row[size]);
+}
+
+function transformPointWithHomography(point, transform) {
+  const denominator = transform.h31 * point.x + transform.h32 * point.y + 1;
+
+  if (Math.abs(denominator) <= 1e-12) {
+    return point;
+  }
+
+  return {
+    x: (transform.h11 * point.x + transform.h12 * point.y + transform.h13) / denominator,
+    y: (transform.h21 * point.x + transform.h22 * point.y + transform.h23) / denominator,
+  };
+}
+
 function normalizeCoordinate(value) {
   const nextValue = Number(value);
   return Number.isFinite(nextValue) ? nextValue : 0;
+}
+
+function cleanupRingNearDuplicateVertices(ring, surfaceSize, minDistancePx) {
+  if (!Array.isArray(ring) || ring.length < 3) {
+    return {
+      changed: false,
+      points: (ring ?? []).map((point, sourceIndex) => ({
+        point: {
+          x: normalizeCoordinate(point.x),
+          y: normalizeCoordinate(point.y),
+        },
+        sourceIndex,
+      })),
+    };
+  }
+
+  let points = ring.map((point, sourceIndex) => ({
+    point: {
+      x: normalizeCoordinate(point.x),
+      y: normalizeCoordinate(point.y),
+    },
+    sourceIndex,
+  }));
+  let changed = false;
+  let didMutate = true;
+
+  while (didMutate && points.length >= 3) {
+    didMutate = false;
+    const nextPoints = [points[0]];
+
+    for (let index = 1; index < points.length; index += 1) {
+      const currentPoint = points[index];
+      const previousKeptPoint = nextPoints[nextPoints.length - 1];
+
+      if (
+        getSurfaceDistancePx(currentPoint.point, previousKeptPoint.point, surfaceSize) <=
+        minDistancePx
+      ) {
+        changed = true;
+        didMutate = true;
+        continue;
+      }
+
+      nextPoints.push(currentPoint);
+    }
+
+    points = nextPoints;
+
+    while (
+      points.length >= 3 &&
+      getSurfaceDistancePx(points[0].point, points[points.length - 1].point, surfaceSize) <=
+        minDistancePx
+    ) {
+      points = points.slice(0, -1);
+      changed = true;
+      didMutate = true;
+    }
+  }
+
+  return {
+    changed,
+    points,
+  };
+}
+
+function getSurfaceDistancePx(leftPoint, rightPoint, surfaceSize) {
+  return Math.hypot(
+    (leftPoint.x - rightPoint.x) * surfaceSize.width,
+    (leftPoint.y - rightPoint.y) * surfaceSize.height,
+  );
 }
 
 function resolveDestroyBrush(brushCells, surfaceSize) {
