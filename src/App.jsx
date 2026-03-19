@@ -45,6 +45,7 @@ import {
   moveShape,
   moveShapeVertices,
   runBooleanOperation,
+  toggleShapeVerticesSharpCorner,
   ungroupShapes,
   updateShapeVertex,
 } from './lib/shapes.js';
@@ -1538,6 +1539,22 @@ function App() {
     );
   };
 
+  const handleToggleHandleSharpCorner = (shapeId, location, handleId) => {
+    if (!shapeId || !location) {
+      return;
+    }
+
+    commitHistoryChange((snapshot) => ({
+      ...snapshot,
+      shapes: snapshot.shapes.map((shape) =>
+        shape.id === shapeId ? toggleShapeVerticesSharpCorner(shape, [location]) : shape,
+      ),
+      selectedHandleIds: handleId ? [handleId] : snapshot.selectedHandleIds,
+      selectedShapeIds: [shapeId],
+      editorMode: EDITOR_MODE_SELECT,
+    }));
+  };
+
   const handleMoveShape = (shapeIds, baseShapes, delta, options = {}) => {
     if (delta.x === 0 && delta.y === 0) {
       return;
@@ -1718,6 +1735,7 @@ function App() {
             onSelectHandleIds={handleSelectHandleIds}
             onSelectShapeIds={handleSelectShapeIds}
             onSurfaceChange={setSurfaceSize}
+            onToggleHandleSharpCorner={handleToggleHandleSharpCorner}
             onUpdateShapeVertex={handleUpdateShapeVertex}
             onViewportContextMenu={handleViewportContextMenu}
             focusRequest={focusRequest}

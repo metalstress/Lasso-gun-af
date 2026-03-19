@@ -11,9 +11,11 @@ import {
   listEditableHandles,
   moveShape,
   runBooleanOperation,
+  toggleShapeVerticesSharpCorner,
   ungroupShapes,
   updateShapeVertex,
 } from './shapes.js';
+import { CORNER_TYPE_SHARP } from './rounded-path.js';
 
 describe('shape helpers', () => {
   it('creates editable shapes from both lasso modes', () => {
@@ -266,5 +268,43 @@ describe('shape helpers', () => {
 
     expect(inserted.polygons[1][0]).toHaveLength(5);
     expect(inserted.polygons[1][0][1]).toEqual({ x: 0.7, y: 0.6 });
+  });
+
+  it('removes a whole flattened path when deleting a vertex from a three-point contour', () => {
+    let first = setDrawMode(clear(), DRAW_MODE_CLASSIC);
+    first = addPoint(first, POINT_KIND_A, { x: 0.1, y: 0.1 });
+    first = addPoint(first, POINT_KIND_A, { x: 0.3, y: 0.1 });
+    first = addPoint(first, POINT_KIND_A, { x: 0.2, y: 0.3 });
+
+    let second = setDrawMode(clear(), DRAW_MODE_CLASSIC);
+    second = addPoint(second, POINT_KIND_A, { x: 0.6, y: 0.6 });
+    second = addPoint(second, POINT_KIND_A, { x: 0.8, y: 0.6 });
+    second = addPoint(second, POINT_KIND_A, { x: 0.7, y: 0.8 });
+
+    const flattened = flattenShapes([createShapeFromDraft(first), createShapeFromDraft(second)]);
+    const updated = deleteShapeVertices(flattened, [
+      { polygonIndex: 0, ringIndex: 0, pointIndex: 1 },
+    ]);
+
+    expect(flattened.polygons).toHaveLength(2);
+    expect(updated.polygons).toHaveLength(1);
+    expect(updated.polygons[0]).toEqual(flattened.polygons[1]);
+  });
+
+  it('toggles a single vertex into a local sharp corner override', () => {
+    let classic = setDrawMode(clear(), DRAW_MODE_CLASSIC);
+    classic = addPoint(classic, POINT_KIND_A, { x: 0.2, y: 0.2 });
+    classic = addPoint(classic, POINT_KIND_A, { x: 0.8, y: 0.2 });
+    classic = addPoint(classic, POINT_KIND_A, { x: 0.5, y: 0.7 });
+
+    const shape = createShapeFromDraft(classic);
+    const location = { polygonIndex: 0, ringIndex: 0, pointIndex: 1 };
+    const sharp = toggleShapeVerticesSharpCorner(shape, [location]);
+    const cleared = toggleShapeVerticesSharpCorner(sharp, [location]);
+
+    expect(sharp.cornerOverrides).toEqual({
+      '0:0:1': CORNER_TYPE_SHARP,
+    });
+    expect(cleared.cornerOverrides).toBeUndefined();
   });
 });

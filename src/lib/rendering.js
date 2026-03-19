@@ -14,7 +14,7 @@ import {
   DEFAULT_CORNER_TYPE,
   traceRoundedPath,
 } from './rounded-path.js';
-import { buildSvgPathFromShape, toSurfacePolygons } from './shapes.js';
+import { buildSvgPathFromShape, getRingCornerTypes, toSurfacePolygons } from './shapes.js';
 
 export const FILL_MODE_FILL = 'fill';
 export const FILL_MODE_OUTLINE = 'outline';
@@ -201,14 +201,20 @@ function drawCommittedShapes(context, surfaceSize, scene, style) {
     const isHovered = hoveredShapeId === shape.id;
 
     if (style.fillMode === FILL_MODE_FILL) {
-      drawMultiPolygonFill(context, surfacePolygons, style, isSelected ? 1 : isHovered ? 0.9 : 0.82);
+      drawMultiPolygonFill(
+        context,
+        shape,
+        surfacePolygons,
+        style,
+        isSelected ? 1 : isHovered ? 0.9 : 0.82,
+      );
     }
 
     if (isHovered) {
-      drawMultiPolygonHoverFill(context, surfacePolygons, style, isSelected);
+      drawMultiPolygonHoverFill(context, shape, surfacePolygons, style, isSelected);
     }
 
-    drawMultiPolygonContour(context, surfacePolygons, style, {
+    drawMultiPolygonContour(context, shape, surfacePolygons, style, {
       isHovered,
       isSelected,
     });
@@ -371,12 +377,12 @@ function drawGridSeries(context, { crispOffset, lineWidth, maxX, maxY, minX, min
   context.restore();
 }
 
-function drawMultiPolygonFill(context, polygons, style, alphaMultiplier = 1) {
+function drawMultiPolygonFill(context, shape, polygons, style, alphaMultiplier = 1) {
   context.save();
   context.beginPath();
-  polygons.forEach((polygon) => {
-    polygon.forEach((ring) => {
-      drawPath(context, ring, true, style);
+  polygons.forEach((polygon, polygonIndex) => {
+    polygon.forEach((ring, ringIndex) => {
+      drawPath(context, ring, true, style, getRingCornerTypes(shape, polygonIndex, ringIndex, style.cornerType));
       context.closePath();
     });
   });
@@ -388,12 +394,12 @@ function drawMultiPolygonFill(context, polygons, style, alphaMultiplier = 1) {
   context.restore();
 }
 
-function drawMultiPolygonHoverFill(context, polygons, style, isSelected) {
+function drawMultiPolygonHoverFill(context, shape, polygons, style, isSelected) {
   context.save();
   context.beginPath();
-  polygons.forEach((polygon) => {
-    polygon.forEach((ring) => {
-      drawPath(context, ring, true, style);
+  polygons.forEach((polygon, polygonIndex) => {
+    polygon.forEach((ring, ringIndex) => {
+      drawPath(context, ring, true, style, getRingCornerTypes(shape, polygonIndex, ringIndex, style.cornerType));
       context.closePath();
     });
   });
@@ -404,12 +410,18 @@ function drawMultiPolygonHoverFill(context, polygons, style, isSelected) {
   context.restore();
 }
 
-function drawMultiPolygonContour(context, polygons, style, { isHovered = false, isSelected = false } = {}) {
+function drawMultiPolygonContour(
+  context,
+  shape,
+  polygons,
+  style,
+  { isHovered = false, isSelected = false } = {},
+) {
   context.save();
   context.beginPath();
-  polygons.forEach((polygon) => {
-    polygon.forEach((ring) => {
-      drawPath(context, ring, true, style);
+  polygons.forEach((polygon, polygonIndex) => {
+    polygon.forEach((ring, ringIndex) => {
+      drawPath(context, ring, true, style, getRingCornerTypes(shape, polygonIndex, ringIndex, style.cornerType));
       context.closePath();
     });
   });
@@ -676,7 +688,7 @@ function buildNeonSvgDefs() {
   ].join('');
 }
 
-function drawPath(context, points, closed, style) {
+function drawPath(context, points, closed, style, cornerTypes = null) {
   if (points.length === 0) {
     return;
   }
@@ -684,6 +696,7 @@ function drawPath(context, points, closed, style) {
   traceRoundedPath(context, points, {
     closed,
     cornerType: style?.cornerType ?? DEFAULT_CORNER_TYPE,
+    cornerTypes,
     radius: style?.cornerRadius ?? DEFAULT_CORNER_RADIUS,
   });
 }

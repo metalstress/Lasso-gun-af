@@ -1,6 +1,10 @@
 import polygonClipping from 'polygon-clipping';
 import { getClosedShapePoints } from './lasso.js';
-import { buildRoundedSvgPath, CORNER_TYPE_INVERSE_ROUND } from './rounded-path.js';
+import {
+  buildRoundedSvgPath,
+  CORNER_TYPE_INVERSE_ROUND,
+  CORNER_TYPE_SHARP,
+} from './rounded-path.js';
 
 export const BOOLEAN_UNION = 'union';
 export const BOOLEAN_SUBTRACT = 'subtract';
@@ -159,20 +163,12 @@ export function deleteShapeVertices(shape, locations) {
     return shape;
   }
 
+  const { polygons, cornerOverrides } = applyVertexDeletion(shape, deletionGroups);
+
   return {
     ...shape,
-    cornerOverrides: shiftCornerOverridesForDelete(shape.cornerOverrides, deletionGroups),
-    polygons: shape.polygons.map((polygon, polygonIndex) =>
-      polygon.map((ring, ringIndex) => {
-        const deletionGroup = deletionGroups.get(createRingLocationKey(polygonIndex, ringIndex));
-
-        if (!deletionGroup) {
-          return ring;
-        }
-
-        return ring.filter((_, pointIndex) => !deletionGroup.deleteSet.has(pointIndex));
-      }),
-    ),
+    cornerOverrides,
+    polygons,
   };
 }
 
@@ -295,6 +291,20 @@ export function toggleShapeVerticesInverseCorner(shape, locations) {
   return shouldClear
     ? clearShapeVerticesCornerOverrides(shape, locations)
     : setShapeVerticesCornerOverride(shape, locations, CORNER_TYPE_INVERSE_ROUND);
+}
+
+export function toggleShapeVerticesSharpCorner(shape, locations) {
+  if (!shape || !isShapeEditable(shape) || !locations || locations.length === 0) {
+    return shape;
+  }
+
+  const shouldClear = locations.every(
+    (location) => getShapeCornerOverride(shape, location) === CORNER_TYPE_SHARP,
+  );
+
+  return shouldClear
+    ? clearShapeVerticesCornerOverrides(shape, locations)
+    : setShapeVerticesCornerOverride(shape, locations, CORNER_TYPE_SHARP);
 }
 
 export function clearShapeVerticesCornerOverrides(shape, locations) {
@@ -838,7 +848,7 @@ function normalizeVertexDeletionGroups(shape, locations) {
 
     const ring = shape.polygons?.[location.polygonIndex]?.[location.ringIndex];
 
-    if (!Array.isArray(ring) || ring.length < 4) {
+    if (!Array.isArray(ring) || ring.length < 3) {
       return;
     }
 
@@ -862,17 +872,123 @@ function normalizeVertexDeletionGroups(shape, locations) {
     const ring = shape.polygons?.[group.polygonIndex]?.[group.ringIndex];
     const indices = Array.from(group.pointIndices).sort((left, right) => left - right);
 
-    if (!Array.isArray(ring) || indices.length === 0 || ring.length - indices.length < 3) {
+    if (!Array.isArray(ring) || indices.length === 0) {
+      return;
+    }
+
+    const remainingPointCount = ring.length - indices.length;
+
+    if (remainingPointCount >= 3) {
+      deletionGroups.set(key, {
+        indices,
+        deleteSet: new Set(indices),
+        removePolygon: false,
+        removeRing: false,
+      });
+      return;
+    }
+
+    if (!canRemoveRingFromShape(shape, group.polygonIndex, group.ringIndex)) {
       return;
     }
 
     deletionGroups.set(key, {
       indices,
       deleteSet: new Set(indices),
+      removePolygon: group.ringIndex === 0,
+      removeRing: true,
     });
   });
 
   return deletionGroups;
+}
+
+function applyVertexDeletion(shape, deletionGroups) {
+  const nextPolygons = [];
+  const handleRemap = new Map();
+
+  shape.polygons.forEach((polygon, polygonIndex) => {
+    const outerDeletion = deletionGroups.get(createRingLocationKey(polygonIndex, 0));
+
+    if (outerDeletion?.removePolygon) {
+      return;
+    }
+
+    const nextPolygon = [];
+
+    polygon.forEach((ring, ringIndex) => {
+      const deletionGroup = deletionGroups.get(createRingLocationKey(polygonIndex, ringIndex));
+
+      if (deletionGroup?.removeRing) {
+        return;
+      }
+
+      const nextRing = [];
+
+      ring.forEach((point, pointIndex) => {
+        if (deletionGroup?.deleteSet.has(pointIndex)) {
+          return;
+        }
+
+        handleRemap.set(
+          createHandleId({ polygonIndex, ringIndex, pointIndex }),
+          createHandleId({
+            polygonIndex: nextPolygons.length,
+            ringIndex: nextPolygon.length,
+            pointIndex: nextRing.length,
+          }),
+        );
+        nextRing.push(point);
+      });
+
+      if (nextRing.length >= 3) {
+        nextPolygon.push(nextRing);
+      }
+    });
+
+    if (nextPolygon.length > 0) {
+      nextPolygons.push(nextPolygon);
+    }
+  });
+
+  return {
+    polygons: nextPolygons,
+    cornerOverrides: remapCornerOverrides(shape.cornerOverrides, handleRemap),
+  };
+}
+
+function remapCornerOverrides(cornerOverrides, handleRemap) {
+  if (!cornerOverrides) {
+    return undefined;
+  }
+
+  const nextCornerOverrides = {};
+
+  Object.entries(cornerOverrides).forEach(([key, cornerType]) => {
+    const parsed = parseHandleId(key);
+
+    if (!parsed) {
+      nextCornerOverrides[key] = cornerType;
+      return;
+    }
+
+    const nextKey = handleRemap.get(key);
+
+    if (nextKey) {
+      nextCornerOverrides[nextKey] = cornerType;
+    }
+  });
+
+  return Object.keys(nextCornerOverrides).length > 0 ? nextCornerOverrides : undefined;
+}
+
+function canRemoveRingFromShape(shape, polygonIndex, ringIndex) {
+  if (ringIndex === 0) {
+    return shape.polygons.length > 1;
+  }
+
+  const polygon = shape.polygons?.[polygonIndex];
+  return Array.isArray(polygon) && polygon.length > 1;
 }
 
 function countDeletedIndicesBefore(indices, pointIndex) {

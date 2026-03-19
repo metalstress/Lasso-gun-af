@@ -3,6 +3,7 @@ export const CORNER_TYPE_ROUND = 'round';
 export const CORNER_TYPE_TRUE_RADIUS = 'true-radius';
 export const CORNER_TYPE_CHAMFER = 'chamfer';
 export const CORNER_TYPE_INVERSE_ROUND = 'inverse-round';
+export const CORNER_TYPE_SHARP = 'sharp';
 export const DEFAULT_CORNER_TYPE = CORNER_TYPE_ROUND;
 
 export function traceRoundedPath(context, points, options = {}) {
@@ -10,6 +11,7 @@ export function traceRoundedPath(context, points, options = {}) {
     closed = false,
     radius = DEFAULT_CORNER_RADIUS,
     cornerType = DEFAULT_CORNER_TYPE,
+    cornerTypes = null,
   } = options;
 
   if (!points || points.length === 0) {
@@ -22,11 +24,11 @@ export function traceRoundedPath(context, points, options = {}) {
   }
 
   if (closed) {
-    traceClosedCornerPath(context, points, radius, cornerType);
+    traceClosedCornerPath(context, points, radius, cornerType, cornerTypes);
     return;
   }
 
-  traceOpenCornerPath(context, points, radius, cornerType);
+  traceOpenCornerPath(context, points, radius, cornerType, cornerTypes);
 }
 
 export function buildRoundedSvgPath(points, options = {}) {
@@ -34,6 +36,7 @@ export function buildRoundedSvgPath(points, options = {}) {
     closed = false,
     radius = DEFAULT_CORNER_RADIUS,
     cornerType = DEFAULT_CORNER_TYPE,
+    cornerTypes = null,
   } = options;
 
   if (!points || points.length === 0) {
@@ -45,13 +48,13 @@ export function buildRoundedSvgPath(points, options = {}) {
   }
 
   if (closed) {
-    return buildClosedCornerSvgPath(points, radius, cornerType);
+    return buildClosedCornerSvgPath(points, radius, cornerType, cornerTypes);
   }
 
-  return buildOpenCornerSvgPath(points, radius, cornerType);
+  return buildOpenCornerSvgPath(points, radius, cornerType, cornerTypes);
 }
 
-function traceClosedCornerPath(context, points, radius, cornerType) {
+function traceClosedCornerPath(context, points, radius, cornerType, cornerTypes) {
   if (points.length < 3) {
     traceLinearPath(context, points, true);
     return;
@@ -63,23 +66,36 @@ function traceClosedCornerPath(context, points, radius, cornerType) {
       point,
       points[(index + 1) % points.length],
       radius,
-      cornerType,
+      getCornerTypeForIndex(cornerTypes, index, cornerType),
     ),
   );
 
   context.moveTo(corners[0].end.x, corners[0].end.y);
 
   for (let index = 1; index < points.length; index += 1) {
+    const nextCornerType = getCornerTypeForIndex(cornerTypes, index, cornerType);
     context.lineTo(corners[index].start.x, corners[index].start.y);
-    traceCanvasCorner(context, corners[index], points[index], points[(index + 1) % points.length], cornerType);
+    traceCanvasCorner(
+      context,
+      corners[index],
+      points[index],
+      points[(index + 1) % points.length],
+      nextCornerType,
+    );
   }
 
   context.lineTo(corners[0].start.x, corners[0].start.y);
-  traceCanvasCorner(context, corners[0], points[0], points[1], cornerType);
+  traceCanvasCorner(
+    context,
+    corners[0],
+    points[0],
+    points[1],
+    getCornerTypeForIndex(cornerTypes, 0, cornerType),
+  );
   context.closePath();
 }
 
-function traceOpenCornerPath(context, points, radius, cornerType) {
+function traceOpenCornerPath(context, points, radius, cornerType, cornerTypes) {
   context.moveTo(points[0].x, points[0].y);
 
   if (points.length === 1) {
@@ -92,9 +108,16 @@ function traceOpenCornerPath(context, points, radius, cornerType) {
   }
 
   for (let index = 1; index < points.length - 1; index += 1) {
-    const corner = getCornerData(points[index - 1], points[index], points[index + 1], radius, cornerType);
+    const nextCornerType = getCornerTypeForIndex(cornerTypes, index, cornerType);
+    const corner = getCornerData(
+      points[index - 1],
+      points[index],
+      points[index + 1],
+      radius,
+      nextCornerType,
+    );
     context.lineTo(corner.start.x, corner.start.y);
-    traceCanvasCorner(context, corner, points[index], points[index + 1], cornerType);
+    traceCanvasCorner(context, corner, points[index], points[index + 1], nextCornerType);
   }
 
   const lastPoint = points[points.length - 1];
@@ -113,7 +136,7 @@ function traceLinearPath(context, points, closed) {
   }
 }
 
-function buildClosedCornerSvgPath(points, radius, cornerType) {
+function buildClosedCornerSvgPath(points, radius, cornerType, cornerTypes) {
   if (points.length < 3) {
     return buildLinearSvgPath(points, true);
   }
@@ -124,24 +147,25 @@ function buildClosedCornerSvgPath(points, radius, cornerType) {
       point,
       points[(index + 1) % points.length],
       radius,
-      cornerType,
+      getCornerTypeForIndex(cornerTypes, index, cornerType),
     ),
   );
 
   const commands = [`M ${formatPoint(corners[0].end)}`];
 
   for (let index = 1; index < points.length; index += 1) {
+    const nextCornerType = getCornerTypeForIndex(cornerTypes, index, cornerType);
     commands.push(`L ${formatPoint(corners[index].start)}`);
-    commands.push(buildSvgCornerCommand(corners[index], points[index], cornerType));
+    commands.push(buildSvgCornerCommand(corners[index], points[index], nextCornerType));
   }
 
   commands.push(`L ${formatPoint(corners[0].start)}`);
-  commands.push(buildSvgCornerCommand(corners[0], points[0], cornerType));
+  commands.push(buildSvgCornerCommand(corners[0], points[0], getCornerTypeForIndex(cornerTypes, 0, cornerType)));
   commands.push('Z');
   return commands.join(' ');
 }
 
-function buildOpenCornerSvgPath(points, radius, cornerType) {
+function buildOpenCornerSvgPath(points, radius, cornerType, cornerTypes) {
   const commands = [`M ${formatPoint(points[0])}`];
 
   if (points.length === 1) {
@@ -154,9 +178,16 @@ function buildOpenCornerSvgPath(points, radius, cornerType) {
   }
 
   for (let index = 1; index < points.length - 1; index += 1) {
-    const corner = getCornerData(points[index - 1], points[index], points[index + 1], radius, cornerType);
+    const nextCornerType = getCornerTypeForIndex(cornerTypes, index, cornerType);
+    const corner = getCornerData(
+      points[index - 1],
+      points[index],
+      points[index + 1],
+      radius,
+      nextCornerType,
+    );
     commands.push(`L ${formatPoint(corner.start)}`);
-    commands.push(buildSvgCornerCommand(corner, points[index], cornerType));
+    commands.push(buildSvgCornerCommand(corner, points[index], nextCornerType));
   }
 
   commands.push(`L ${formatPoint(points[points.length - 1])}`);
@@ -174,6 +205,11 @@ function buildLinearSvgPath(points, closed) {
 }
 
 function traceCanvasCorner(context, corner, point, nextPoint, cornerType) {
+  if (cornerType === CORNER_TYPE_SHARP) {
+    context.lineTo(corner.end.x, corner.end.y);
+    return;
+  }
+
   if (cornerType === CORNER_TYPE_CHAMFER) {
     context.lineTo(corner.end.x, corner.end.y);
     return;
@@ -198,6 +234,10 @@ function traceCanvasCorner(context, corner, point, nextPoint, cornerType) {
 }
 
 function buildSvgCornerCommand(corner, point, cornerType) {
+  if (cornerType === CORNER_TYPE_SHARP) {
+    return `L ${formatPoint(corner.end)}`;
+  }
+
   if (cornerType === CORNER_TYPE_CHAMFER) {
     return `L ${formatPoint(corner.end)}`;
   }
@@ -225,7 +265,7 @@ function getCornerData(previousPoint, point, nextPoint, radius, cornerType) {
   const incomingLength = Math.hypot(incoming.x, incoming.y);
   const outgoingLength = Math.hypot(outgoing.x, outgoing.y);
 
-  if (incomingLength === 0 || outgoingLength === 0) {
+  if (incomingLength === 0 || outgoingLength === 0 || cornerType === CORNER_TYPE_SHARP || radius <= 0) {
     return {
       start: point,
       end: point,
@@ -281,6 +321,14 @@ function getCornerData(previousPoint, point, nextPoint, radius, cornerType) {
     sweepFlag: cross < 0 ? 1 : 0,
     inverseControl,
   };
+}
+
+function getCornerTypeForIndex(cornerTypes, index, fallbackCornerType) {
+  if (!Array.isArray(cornerTypes)) {
+    return fallbackCornerType;
+  }
+
+  return cornerTypes[index] ?? fallbackCornerType;
 }
 
 function normalizeVector(vector) {

@@ -31,6 +31,7 @@ function DrawingCanvas({
   onSelectHandleIds,
   onSelectShapeIds,
   onSurfaceChange,
+  onToggleHandleSharpCorner,
   onUpdateShapeVertex,
   onViewportContextMenu,
   scene,
@@ -414,6 +415,11 @@ function DrawingCanvas({
           ? scene.selectedShapeIds
           : [hitHandle.shapeId],
       );
+
+      if (!additiveSelection && event.detail >= 2) {
+        onToggleHandleSharpCorner?.(hitHandle.shapeId, hitHandle.location, hitHandle.id);
+        return;
+      }
 
       if (additiveSelection || nextSelectedHandleIds.length === 0) {
         return;

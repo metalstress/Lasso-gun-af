@@ -1,6 +1,10 @@
 import { DRAW_MODE_CLASSIC, POINT_KIND_A, POINT_KIND_B, addPoint, clear, setDrawMode } from './lasso.js';
 import { CORNER_TYPE_CHAMFER, CORNER_TYPE_TRUE_RADIUS } from './rounded-path.js';
-import { buildSvgPathFromShape, createShapeFromDraft } from './shapes.js';
+import {
+  buildSvgPathFromShape,
+  createShapeFromDraft,
+  toggleShapeVerticesSharpCorner,
+} from './shapes.js';
 
 describe('rendering exports', () => {
   it('builds a closed SVG path for the dual-point mode', () => {
@@ -71,5 +75,28 @@ describe('rendering exports', () => {
     expect(path).not.toContain('Q');
     expect(path).not.toContain('A');
     expect(path.endsWith('Z')).toBe(true);
+  });
+
+  it('keeps a double-clicked corner sharp even when global rounding is enabled', () => {
+    let state = setDrawMode(clear(), DRAW_MODE_CLASSIC);
+    state = addPoint(state, POINT_KIND_A, { x: 0.2, y: 0.2 });
+    state = addPoint(state, POINT_KIND_A, { x: 0.8, y: 0.25 });
+    state = addPoint(state, POINT_KIND_A, { x: 0.6, y: 0.8 });
+
+    const baseShape = createShapeFromDraft(state);
+    const sharpShape = toggleShapeVerticesSharpCorner(baseShape, [
+      { polygonIndex: 0, ringIndex: 0, pointIndex: 1 },
+    ]);
+
+    const roundedPath = buildSvgPathFromShape(baseShape, { width: 1000, height: 500 }, {
+      cornerRadius: 36,
+    });
+    const sharpPath = buildSvgPathFromShape(sharpShape, { width: 1000, height: 500 }, {
+      cornerRadius: 36,
+    });
+
+    expect((roundedPath.match(/Q/g) ?? []).length).toBe(3);
+    expect((sharpPath.match(/Q/g) ?? []).length).toBe(2);
+    expect(sharpPath.endsWith('Z')).toBe(true);
   });
 });
