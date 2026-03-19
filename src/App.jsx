@@ -35,6 +35,7 @@ import {
   createShapeFromPolygons,
   deleteShapeVertices,
   duplicateShapes,
+  eraseShapesAlongSegment,
   flattenShapes,
   getSceneShapes,
   getShapeBounds,
@@ -42,9 +43,11 @@ import {
   insertShapeVertex,
   isShapeEditable,
   listEditableHandles,
+  mirrorShape,
   moveShape,
   moveShapeVertices,
   runBooleanOperation,
+  scaleShapeFromBounds,
   toggleShapeVerticesSharpCorner,
   ungroupShapes,
   updateShapeVertex,
@@ -72,6 +75,8 @@ const MOBILE_LAYOUT_QUERY = '(max-width: 740px)';
 const DEFAULT_SURFACE_SIZE = { width: 1200, height: 720 };
 const EDITOR_MODE_DRAW = 'draw';
 const EDITOR_MODE_SELECT = 'select';
+const EDITOR_MODE_DESTROY = 'destroy';
+const EDITOR_MODE_TRANSFORM = 'transform';
 const EDITOR_MODE_EDIT = 'edit';
 const PREFERENCES_TAB_TOOLS = 'tools';
 const PREFERENCES_TAB_UI_THEME = 'ui-theme';
@@ -87,6 +92,8 @@ const PRESET_SHAPE_STAR = 'star';
 const PRESET_SHAPE_POLYGON = 'polygon';
 const DEFAULT_POLYGON_SIDES = 3;
 const MAX_POLYGON_SIDES = 32;
+const DESTROY_BRUSH_STEPS = [2, 4, 6, 8, 12, 24, 32];
+const DEFAULT_DESTROY_BRUSH_CELLS = 8;
 const PRESET_SHAPE_OPTIONS = [
   { value: PRESET_SHAPE_SQUARE, label: 'Square' },
   { value: PRESET_SHAPE_STAR, label: 'Star' },
@@ -113,9 +120,11 @@ function App() {
   const [customUiTheme, setCustomUiTheme] = useState(() => DEFAULT_CUSTOM_UI_THEME);
   const [dualPointBehavior, setDualPointBehavior] = useState(DUAL_POINT_BEHAVIOR_SEQUENTIAL);
   const [snapToGrid, setSnapToGrid] = useState(false);
+  const [destroyBrushCells, setDestroyBrushCells] = useState(DEFAULT_DESTROY_BRUSH_CELLS);
   const [shapePresetKind, setShapePresetKind] = useState(PRESET_SHAPE_SQUARE);
   const [polygonSides, setPolygonSides] = useState(DEFAULT_POLYGON_SIDES);
   const [isShapePresetMenuOpen, setIsShapePresetMenuOpen] = useState(false);
+  const [isDestroyBrushMenuOpen, setIsDestroyBrushMenuOpen] = useState(false);
   const [isPreferencesOpen, setIsPreferencesOpen] = useState(false);
   const [preferencesTab, setPreferencesTab] = useState(PREFERENCES_TAB_TOOLS);
   const [shapeClipboard, setShapeClipboard] = useState({ shapes: [], pasteCount: 0 });
@@ -133,6 +142,7 @@ function App() {
   const lastDuplicateDeltaRef = useRef(null);
   const contextMenuRef = useRef(null);
   const shapePresetRef = useRef(null);
+  const destroyBrushRef = useRef(null);
   const toolbarTooltipTimerRef = useRef(null);
   const dockToolbarRef = useRef(null);
   const workspaceRef = useRef(null);
@@ -306,6 +316,17 @@ function App() {
       }
 
       if (!isFormField && !hasModifier && !event.altKey && !event.shiftKey) {
+        if (event.key === 'Enter') {
+          if (isOverlayOpen || activeEditorMode !== EDITOR_MODE_DRAW || !canCommitDraft) {
+            return;
+          }
+
+          event.preventDefault();
+          hideToolbarTooltip();
+          handleCommitDraftShape();
+          return;
+        }
+
         switch (event.code) {
           case 'KeyP':
             event.preventDefault();
@@ -319,6 +340,16 @@ function App() {
             event.preventDefault();
             hideToolbarTooltip();
             handleEditorModeChange(EDITOR_MODE_SELECT);
+            return;
+          case 'KeyB':
+            event.preventDefault();
+            hideToolbarTooltip();
+            handleEditorModeChange(EDITOR_MODE_TRANSFORM);
+            return;
+          case 'KeyX':
+            event.preventDefault();
+            hideToolbarTooltip();
+            handleEditorModeChange(EDITOR_MODE_DESTROY);
             return;
           case 'KeyE':
             event.preventDefault();
@@ -481,6 +512,34 @@ function App() {
   }, [isShapePresetMenuOpen]);
 
   useEffect(() => {
+    if (!isDestroyBrushMenuOpen) {
+      return undefined;
+    }
+
+    const closeDestroyBrushMenu = () => {
+      setIsDestroyBrushMenuOpen(false);
+    };
+
+    const handlePointerDown = (event) => {
+      if (destroyBrushRef.current?.contains(event.target)) {
+        return;
+      }
+
+      closeDestroyBrushMenu();
+    };
+
+    window.addEventListener('pointerdown', handlePointerDown);
+    window.addEventListener('resize', closeDestroyBrushMenu);
+    window.addEventListener('scroll', closeDestroyBrushMenu, true);
+
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown);
+      window.removeEventListener('resize', closeDestroyBrushMenu);
+      window.removeEventListener('scroll', closeDestroyBrushMenu, true);
+    };
+  }, [isDestroyBrushMenuOpen]);
+
+  useEffect(() => {
     if (!viewportContextMenu.isOpen) {
       return undefined;
     }
@@ -545,8 +604,13 @@ function App() {
         .filter(Boolean),
     [selectedShapeIds, shapes],
   );
+  const selectedShapesBounds = useMemo(() => getShapesBounds(selectedShapes), [selectedShapes]);
   const isMoveMode = activeEditorMode === EDITOR_MODE_SELECT;
-  const isSelectionWorkflow = activeEditorMode === EDITOR_MODE_SELECT;
+  const isDestroyMode = activeEditorMode === EDITOR_MODE_DESTROY;
+  const isTransformMode = activeEditorMode === EDITOR_MODE_TRANSFORM;
+  const isSelectionWorkflow =
+    activeEditorMode === EDITOR_MODE_SELECT || activeEditorMode === EDITOR_MODE_TRANSFORM;
+  const destroyBrushStepIndex = getDestroyBrushStepIndex(destroyBrushCells);
   const currentShapePresetOption =
     PRESET_SHAPE_OPTIONS.find((option) => option.value === shapePresetKind) ?? PRESET_SHAPE_OPTIONS[0];
   const hasClipboardShapes = shapeClipboard.shapes.length > 0;
@@ -635,6 +699,15 @@ function App() {
       return nextSelectedHandleIds.length === current.length ? current : nextSelectedHandleIds;
     });
   }, [activeEditorMode, selectedShapes]);
+
+  useEffect(() => {
+    const validShapeIds = new Set(shapes.map((shape) => shape.id));
+
+    setSelectedShapeIds((current) => {
+      const nextSelectedShapeIds = current.filter((shapeId) => validShapeIds.has(shapeId));
+      return nextSelectedShapeIds.length === current.length ? current : nextSelectedShapeIds;
+    });
+  }, [shapes]);
 
   const canRunBoolean = selectedShapeIds.length >= 2;
   const canDeleteSelection = selectedShapeIds.length > 0;
@@ -866,8 +939,8 @@ function App() {
     historyRef.current = {
       past: [...historyRef.current.past, initialSnapshot].slice(-HISTORY_LIMIT),
       future: [],
-        };
-      };
+    };
+  };
 
   const closeMobilePanel = () => {
     setMobilePanel(null);
@@ -926,6 +999,7 @@ function App() {
     }));
     setViewportContextMenu(CLOSED_VIEWPORT_CONTEXT_MENU);
     setIsShapePresetMenuOpen(false);
+    setIsDestroyBrushMenuOpen(false);
   };
 
   const handleEditorModeChange = (mode) => {
@@ -934,10 +1008,29 @@ function App() {
     setEditorMode(nextMode);
     setViewportContextMenu(CLOSED_VIEWPORT_CONTEXT_MENU);
     setIsShapePresetMenuOpen(false);
+    setIsDestroyBrushMenuOpen(false);
 
     if (nextMode !== EDITOR_MODE_SELECT) {
       setSelectedHandleIds([]);
     }
+  };
+
+  const handleDestroyBrushMenuToggle = () => {
+    hideToolbarTooltip();
+    setViewportContextMenu(CLOSED_VIEWPORT_CONTEXT_MENU);
+    setIsShapePresetMenuOpen(false);
+    setIsDestroyBrushMenuOpen((current) => !current);
+  };
+
+  const handleDestroyBrushContextMenu = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    handleDestroyBrushMenuToggle();
+  };
+
+  const handleDestroyBrushSizeChange = (event) => {
+    const index = clampDestroyBrushStepIndex(event.target.value);
+    setDestroyBrushCells(DESTROY_BRUSH_STEPS[index]);
   };
 
   const handleLayerSelection = (shapeId, event) => {
@@ -1579,6 +1672,90 @@ function App() {
     );
   };
 
+  const handleDestroyShapes = (startPoint, endPoint, brushCells = destroyBrushCells) => {
+    if (!startPoint || !endPoint) {
+      return;
+    }
+
+    setShapes((current) => {
+      const nextShapes = eraseShapesAlongSegment(
+        current,
+        startPoint,
+        endPoint,
+        brushCells,
+        surfaceSize,
+      );
+
+      if (nextShapes !== current) {
+        gestureHasChangesRef.current = true;
+      }
+
+      return nextShapes;
+    });
+    setSelectedHandleIds((current) => (current.length === 0 ? current : []));
+  };
+
+  const handleTransformShapes = (shapeIds, baseShapes, sourceBounds, targetBounds) => {
+    if (!sourceBounds || !targetBounds || shapeIds.length === 0 || baseShapes.length === 0) {
+      return;
+    }
+
+    if (
+      sourceBounds.minX === targetBounds.minX &&
+      sourceBounds.maxX === targetBounds.maxX &&
+      sourceBounds.minY === targetBounds.minY &&
+      sourceBounds.maxY === targetBounds.maxY
+    ) {
+      return;
+    }
+
+    gestureHasChangesRef.current = true;
+    const baseShapeMap = new Map(baseShapes.map((shape) => [shape.id, shape]));
+
+    setShapes((current) =>
+      current.map((shape) => {
+        if (!shapeIds.includes(shape.id)) {
+          return shape;
+        }
+
+        const baseShape = baseShapeMap.get(shape.id) ?? shape;
+        return scaleShapeFromBounds(baseShape, sourceBounds, targetBounds);
+      }),
+    );
+  };
+
+  const handleMirrorSelectedShapes = (axis) => {
+    if (selectedShapeIds.length === 0 || !selectedShapesBounds) {
+      return false;
+    }
+
+    commitHistoryChange((snapshot) => {
+      if (snapshot.selectedShapeIds.length === 0) {
+        return snapshot;
+      }
+
+      const orderedSelection = snapshot.selectedShapeIds
+        .map((shapeId) => snapshot.shapes.find((shape) => shape.id === shapeId))
+        .filter(Boolean);
+      const selectionBounds = getShapesBounds(orderedSelection);
+
+      if (!selectionBounds) {
+        return snapshot;
+      }
+
+      const selectedSet = new Set(snapshot.selectedShapeIds);
+
+      return {
+        ...snapshot,
+        selectedHandleIds: [],
+        shapes: snapshot.shapes.map((shape) =>
+          selectedSet.has(shape.id) ? mirrorShape(shape, axis, selectionBounds) : shape,
+        ),
+      };
+    });
+    return true;
+  };
+
   const handleNudgeSelectedShapes = (direction, stepMultiplier = 1) => {
     if (!direction || selectedShapeIds.length === 0) {
       return false;
@@ -1719,6 +1896,7 @@ function App() {
         <main className="workspace" ref={workspaceRef}>
           <DrawingCanvas
             appearance={appearance}
+            destroyBrushCells={destroyBrushCells}
             editorMode={activeEditorMode}
             isSequentialDualPoint={isSequentialDualPoint}
             onDuplicateShapeDragStart={handleDuplicateShapesForDrag}
@@ -1729,12 +1907,16 @@ function App() {
             onEndHistoryGesture={endHistoryGesture}
             onMoveShape={handleMoveShape}
             onMoveShapeVertices={handleMoveShapeVertices}
+            onDestroyShapes={handleDestroyShapes}
+            onTransformShapes={handleTransformShapes}
+            onMirrorSelection={handleMirrorSelectedShapes}
             onInsertShapeVertex={handleInsertShapeVertex}
             onPlacePoint={handlePlacePoint}
             onPointerChange={handlePointerChange}
             onSelectHandleIds={handleSelectHandleIds}
             onSelectShapeIds={handleSelectShapeIds}
             onSurfaceChange={setSurfaceSize}
+            transformSelectionBounds={selectedShapesBounds}
             onToggleHandleSharpCorner={handleToggleHandleSharpCorner}
             onUpdateShapeVertex={handleUpdateShapeVertex}
             onViewportContextMenu={handleViewportContextMenu}
@@ -2276,6 +2458,26 @@ function App() {
                 onClick={() => handleEditorModeChange(EDITOR_MODE_SELECT)}
               />
               <ToolButton
+                isActive={isTransformMode}
+                label="Transform"
+                hotkey="B"
+                icon={<TransformToolIcon />}
+                tooltipProps={getToolbarTooltipProps('Transform', 'B')}
+                onClick={() => handleEditorModeChange(EDITOR_MODE_TRANSFORM)}
+              />
+              <DestroyToolButton
+                brushCells={destroyBrushCells}
+                brushStepIndex={destroyBrushStepIndex}
+                brushSteps={DESTROY_BRUSH_STEPS}
+                getTooltipProps={getToolbarTooltipProps}
+                isActive={isDestroyMode}
+                isOpen={isDestroyBrushMenuOpen}
+                menuRef={destroyBrushRef}
+                onBrushSizeChange={handleDestroyBrushSizeChange}
+                onClick={() => handleEditorModeChange(EDITOR_MODE_DESTROY)}
+                onContextMenu={handleDestroyBrushContextMenu}
+              />
+              <ToolButton
                 isActive={activeEditorMode === EDITOR_MODE_DRAW}
                 label="Draw"
                 hotkey="D"
@@ -2560,6 +2762,7 @@ function ToolButton({
   isActive = false,
   label,
   onClick,
+  onContextMenu,
   tooltipProps,
 }) {
   return (
@@ -2569,6 +2772,7 @@ function ToolButton({
       aria-label={hotkey ? `${label} (${hotkey})` : label}
       disabled={disabled}
       onClick={onClick}
+      onContextMenu={onContextMenu}
       {...tooltipProps}
     >
       <span className="tool-button-icon" aria-hidden="true">
@@ -2679,6 +2883,60 @@ function ShapePresetDropdown({
   );
 }
 
+function DestroyToolButton({
+  brushCells,
+  brushStepIndex,
+  brushSteps,
+  getTooltipProps,
+  isActive = false,
+  isOpen = false,
+  menuRef,
+  onBrushSizeChange,
+  onClick,
+  onContextMenu,
+}) {
+  return (
+    <div className="destroy-tool-shell" ref={menuRef}>
+      <ToolButton
+        isActive={isActive}
+        label="Shape Destroyer"
+        hotkey="X"
+        icon={<DestroyToolIcon />}
+        tooltipProps={getTooltipProps('Shape Destroyer / RMB size', 'X')}
+        onClick={onClick}
+        onContextMenu={onContextMenu}
+      />
+      {isOpen ? (
+        <div className="destroy-brush-menu" role="dialog" aria-label="Shape Destroyer size">
+          <div className="destroy-brush-menu-header">
+            <span className="shape-preset-meta">Shape Destroyer</span>
+            <span className="destroy-brush-size-readout">{brushCells} x {brushCells}</span>
+          </div>
+          <input
+            className="destroy-brush-slider"
+            type="range"
+            min="0"
+            max={String(Math.max(0, brushSteps.length - 1))}
+            step="1"
+            value={brushStepIndex}
+            onChange={onBrushSizeChange}
+          />
+          <div className="destroy-brush-steps" aria-hidden="true">
+            {brushSteps.map((step) => (
+              <span
+                key={step}
+                className={`destroy-brush-step ${step === brushCells ? 'is-active' : ''}`.trim()}
+              >
+                {step}
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function ShapePresetOption({ hotkey, icon, isActive = false, label, onClick, tooltipProps }) {
   return (
     <button
@@ -2774,6 +3032,56 @@ function MoveToolIcon() {
       <path
         d="M4.15 2.2v13.1l3.72-2.2 2.27 4.7 2.2-1.04-2.22-4.58 5.33-.46L4.15 2.2Z"
         fill="currentColor"
+      />
+    </svg>
+  );
+}
+
+function TransformToolIcon() {
+  return (
+    <svg viewBox="0 0 20 20" aria-hidden="true">
+      <rect
+        x="4.1"
+        y="4.1"
+        width="11.8"
+        height="11.8"
+        rx="0.9"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+      />
+      <circle cx="4.1" cy="4.1" r="1.1" fill="currentColor" />
+      <circle cx="15.9" cy="4.1" r="1.1" fill="currentColor" />
+      <circle cx="15.9" cy="15.9" r="1.1" fill="currentColor" />
+      <circle cx="4.1" cy="15.9" r="1.1" fill="currentColor" />
+    </svg>
+  );
+}
+
+function DestroyToolIcon() {
+  return (
+    <svg viewBox="0 0 20 20" aria-hidden="true">
+      <path
+        d="M5 6.1 9.5 2.8l7.2 7.2-3.3 4.5H8.8L5 11.2Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.45"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M9.1 14.5h5.8M8 11.2h5.8"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.45"
+        strokeLinecap="round"
+      />
+      <path
+        d="M4.2 15.8h11.6"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.45"
+        strokeLinecap="round"
+        opacity="0.58"
       />
     </svg>
   );
@@ -3065,6 +3373,14 @@ function getWorkflowLabel(editorMode) {
     return 'Move';
   }
 
+  if (mode === EDITOR_MODE_DESTROY) {
+    return 'Destroy';
+  }
+
+  if (mode === EDITOR_MODE_TRANSFORM) {
+    return 'Transform';
+  }
+
   return 'Draw';
 }
 
@@ -3083,6 +3399,39 @@ function getHowToBallContent({
   touchMode,
   touchModeMismatch,
 }) {
+  if (activeEditorMode === EDITOR_MODE_DESTROY) {
+    return {
+      isWarning: false,
+      items: limitHowToBallItems([
+        createHowToBallItem('destroy-drag', ['Drag'], 'carve shapes with the square brush'),
+        createHowToBallItem('destroy-size', ['RMB Tool'], 'open the brush-size slider above the icon'),
+        createHowToBallItem('destroy-wheel', ['Wheel'], 'zoom the viewport'),
+        createHowToBallItem('destroy-pan', ['Space', 'LMB'], 'move around canvas'),
+      ]),
+      status:
+        selectedShapeCount > 0
+          ? 'Destroy mode is live. Drag across the canvas to chew through shapes, including the current selection.'
+          : 'Destroy mode is armed. Drag over any shape to erase it with square brush stamps.',
+    };
+  }
+
+  if (activeEditorMode === EDITOR_MODE_TRANSFORM) {
+    return {
+      isWarning: false,
+      items: limitHowToBallItems([
+        createHowToBallItem('transform-drag-shape', ['Drag Shape'], 'move the current selection'),
+        createHowToBallItem('transform-drag-box', ['Drag Handle'], 'scale the selection from the bbox'),
+        createHowToBallItem('transform-mirror', ['Mirror X/Y'], 'flip the selection from the popup'),
+        createHowToBallItem('transform-wheel', ['Wheel'], 'zoom the viewport'),
+        createHowToBallItem('transform-pan', ['Space', 'LMB'], 'move around canvas'),
+      ]),
+      status:
+        selectedShapeCount > 0
+          ? 'Transform mode is live. Drag the bbox handles or tap Mirror X / Mirror Y under the selection.'
+          : 'Transform mode is armed. Select a shape to spawn the bounding box.',
+    };
+  }
+
   if (activeEditorMode === EDITOR_MODE_SELECT) {
     if (selectedHandleCount > 0) {
       return {
@@ -3259,6 +3608,14 @@ function normalizeEditorMode(editorMode) {
     return EDITOR_MODE_SELECT;
   }
 
+  if (editorMode === EDITOR_MODE_DESTROY) {
+    return EDITOR_MODE_DESTROY;
+  }
+
+  if (editorMode === EDITOR_MODE_TRANSFORM) {
+    return EDITOR_MODE_TRANSFORM;
+  }
+
   if (editorMode === EDITOR_MODE_EDIT) {
     return EDITOR_MODE_SELECT;
   }
@@ -3418,6 +3775,32 @@ function getShapesBounds(shapes = []) {
         maxY: Number.NEGATIVE_INFINITY,
       },
     );
+}
+
+function getDestroyBrushStepIndex(brushCells) {
+  const exactIndex = DESTROY_BRUSH_STEPS.indexOf(Number(brushCells));
+
+  if (exactIndex >= 0) {
+    return exactIndex;
+  }
+
+  return DESTROY_BRUSH_STEPS.reduce(
+    (bestIndex, step, index) =>
+      Math.abs(step - brushCells) < Math.abs(DESTROY_BRUSH_STEPS[bestIndex] - brushCells)
+        ? index
+        : bestIndex,
+    0,
+  );
+}
+
+function clampDestroyBrushStepIndex(value) {
+  const parsed = Number.parseInt(value, 10);
+
+  if (!Number.isInteger(parsed)) {
+    return 0;
+  }
+
+  return Math.min(DESTROY_BRUSH_STEPS.length - 1, Math.max(0, parsed));
 }
 
 function getToolbarTooltipPosition(bounds) {

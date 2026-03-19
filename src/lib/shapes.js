@@ -1,4 +1,5 @@
 import polygonClipping from 'polygon-clipping';
+import { GRID_STEP_PX } from './grid.js';
 import { getClosedShapePoints } from './lasso.js';
 import {
   buildRoundedSvgPath,
@@ -190,6 +191,120 @@ export function moveShape(shape, delta) {
       ),
     ),
   };
+}
+
+export function scaleShapeFromBounds(shape, sourceBounds, targetBounds) {
+  if (!shape || !sourceBounds || !targetBounds) {
+    return shape;
+  }
+
+  return {
+    ...shape,
+    polygons: shape.polygons.map((polygon) =>
+      polygon.map((ring) =>
+        ring.map((point) => ({
+          x: normalizeCoordinate(
+            remapCoordinateBetweenBounds(
+              point.x,
+              sourceBounds.minX,
+              sourceBounds.maxX,
+              targetBounds.minX,
+              targetBounds.maxX,
+            ),
+          ),
+          y: normalizeCoordinate(
+            remapCoordinateBetweenBounds(
+              point.y,
+              sourceBounds.minY,
+              sourceBounds.maxY,
+              targetBounds.minY,
+              targetBounds.maxY,
+            ),
+          ),
+        })),
+      ),
+    ),
+  };
+}
+
+export function mirrorShape(shape, axis, bounds) {
+  if (!shape || !bounds || (axis !== 'x' && axis !== 'y')) {
+    return shape;
+  }
+
+  const pivotX = (bounds.minX + bounds.maxX) * 0.5;
+  const pivotY = (bounds.minY + bounds.maxY) * 0.5;
+
+  return {
+    ...shape,
+    polygons: shape.polygons.map((polygon) =>
+      polygon.map((ring) =>
+        ring.map((point) => ({
+          x: normalizeCoordinate(axis === 'x' ? pivotX * 2 - point.x : point.x),
+          y: normalizeCoordinate(axis === 'y' ? pivotY * 2 - point.y : point.y),
+        })),
+      ),
+    ),
+  };
+}
+
+export function eraseShapesWithSquare(shapes = [], centerPoint, brushCells, surfaceSize) {
+  if (!Array.isArray(shapes) || shapes.length === 0 || !centerPoint || !surfaceSize) {
+    return shapes;
+  }
+
+  const brush = resolveDestroyBrush(brushCells, surfaceSize);
+
+  if (!brush) {
+    return shapes;
+  }
+
+  return eraseShapesWithStamp(shapes, centerPoint, brush);
+}
+
+export function eraseShapesAlongSegment(
+  shapes = [],
+  startPoint,
+  endPoint,
+  brushCells,
+  surfaceSize,
+) {
+  if (!Array.isArray(shapes) || shapes.length === 0 || !startPoint || !endPoint || !surfaceSize) {
+    return shapes;
+  }
+
+  const brush = resolveDestroyBrush(brushCells, surfaceSize);
+
+  if (!brush) {
+    return shapes;
+  }
+
+  const distancePx = Math.hypot(
+    (endPoint.x - startPoint.x) * surfaceSize.width,
+    (endPoint.y - startPoint.y) * surfaceSize.height,
+  );
+
+  if (distancePx <= Number.EPSILON) {
+    return eraseShapesWithStamp(shapes, startPoint, brush);
+  }
+
+  const spacingPx = Math.max(6, Math.min(brush.widthPx, brush.heightPx) * 0.42);
+  const steps = Math.max(1, Math.ceil(distancePx / spacingPx));
+  let nextShapes = shapes;
+
+  for (let step = 0; step <= steps; step += 1) {
+    const progress = step / steps;
+    nextShapes = eraseShapesWithStamp(
+      nextShapes,
+      {
+        x: lerp(startPoint.x, endPoint.x, progress),
+        y: lerp(startPoint.y, endPoint.y, progress),
+      },
+      brush,
+    );
+  }
+
+  return nextShapes;
 }
 
 export function duplicateShapes(shapes, options = {}) {
@@ -472,6 +587,35 @@ function createShapeFromPolygonClipping(result, options = {}) {
   );
 }
 
+function recreateShapeFromPolygonClipping(shape, result) {
+  if (!shape || !result || result.length === 0) {
+    return null;
+  }
+
+  const polygons = normalizePolygons(
+    result.map((polygon) =>
+      polygon.map((ring) => {
+        const nextRing = ring.map(([x, y]) => ({
+          x: normalizeCoordinate(x),
+          y: normalizeCoordinate(y),
+        }));
+        return isRingClosed(nextRing) ? nextRing.slice(0, -1) : nextRing;
+      }),
+    ),
+  );
+
+  if (polygons.length === 0) {
+    return null;
+  }
+
+  return {
+    ...shape,
+    cornerOverrides: undefined,
+    group: null,
+    polygons,
+  };
+}
+
 function buildBooleanMetadata(operation, selectedShapes = []) {
   if (!operation || selectedShapes.length < 2) {
     return {};
@@ -510,6 +654,45 @@ function toPolygonClippingShape(shape) {
   );
 }
 
+function eraseShapesWithStamp(shapes, centerPoint, brush) {
+  const stampBounds = {
+    minX: centerPoint.x - brush.halfWidth,
+    maxX: centerPoint.x + brush.halfWidth,
+    minY: centerPoint.y - brush.halfHeight,
+    maxY: centerPoint.y + brush.halfHeight,
+  };
+  const stampPolygon = buildSquarePolygon(stampBounds);
+  let changed = false;
+  const nextShapes = [];
+
+  shapes.forEach((shape) => {
+    const shapeBounds = getShapeBounds(shape);
+
+    if (!doBoundsIntersect(shapeBounds, stampBounds)) {
+      nextShapes.push(shape);
+      return;
+    }
+
+    const shapePolygon = toPolygonClippingShape(shape);
+    const overlap = polygonClipping.intersection(shapePolygon, stampPolygon);
+
+    if (!overlap || overlap.length === 0) {
+      nextShapes.push(shape);
+      return;
+    }
+
+    const result = polygonClipping.difference(shapePolygon, stampPolygon);
+    const nextShape = recreateShapeFromPolygonClipping(shape, result);
+    changed = true;
+
+    if (nextShape) {
+      nextShapes.push(nextShape);
+    }
+  });
+
+  return changed ? nextShapes : shapes;
+}
+
 function normalizePolygons(polygons) {
   return polygons
     .map((polygon) =>
@@ -518,6 +701,27 @@ function normalizePolygons(polygons) {
         .filter((ring) => ring.length >= 3),
     )
     .filter((polygon) => polygon.length > 0);
+}
+
+function buildSquarePolygon(bounds) {
+  return [[
+    [
+      [bounds.minX, bounds.minY],
+      [bounds.maxX, bounds.minY],
+      [bounds.maxX, bounds.maxY],
+      [bounds.minX, bounds.maxY],
+      [bounds.minX, bounds.minY],
+    ],
+  ]];
+}
+
+function doBoundsIntersect(left, right) {
+  return !(
+    left.maxX <= right.minX ||
+    left.minX >= right.maxX ||
+    left.maxY <= right.minY ||
+    left.minY >= right.maxY
+  );
 }
 
 function normalizeRing(ring) {
@@ -1028,4 +1232,37 @@ function parseHandleId(handleId) {
 function normalizeCoordinate(value) {
   const nextValue = Number(value);
   return Number.isFinite(nextValue) ? nextValue : 0;
+}
+
+function resolveDestroyBrush(brushCells, surfaceSize) {
+  const cells = Number(brushCells);
+
+  if (!Number.isFinite(cells) || cells <= 0 || !surfaceSize?.width || !surfaceSize?.height) {
+    return null;
+  }
+
+  const widthPx = cells * GRID_STEP_PX;
+  const heightPx = cells * GRID_STEP_PX;
+
+  return {
+    halfHeight: heightPx / Math.max(surfaceSize.height, 1) * 0.5,
+    halfWidth: widthPx / Math.max(surfaceSize.width, 1) * 0.5,
+    heightPx,
+    widthPx,
+  };
+}
+
+function lerp(start, end, progress) {
+  return start + (end - start) * progress;
+}
+
+function remapCoordinateBetweenBounds(value, sourceMin, sourceMax, targetMin, targetMax) {
+  const sourceSpan = sourceMax - sourceMin;
+
+  if (Math.abs(sourceSpan) <= Number.EPSILON) {
+    return value + ((targetMin + targetMax) * 0.5 - (sourceMin + sourceMax) * 0.5);
+  }
+
+  const progress = (value - sourceMin) / sourceSpan;
+  return targetMin + progress * (targetMax - targetMin);
 }

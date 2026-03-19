@@ -5,12 +5,15 @@ import {
   createShapeFromDraft,
   deleteShapeVertices,
   duplicateShapes,
+  eraseShapesWithSquare,
   flattenShapes,
   insertShapeVertex,
   isShapeEditable,
   listEditableHandles,
+  mirrorShape,
   moveShape,
   runBooleanOperation,
+  scaleShapeFromBounds,
   toggleShapeVerticesSharpCorner,
   ungroupShapes,
   updateShapeVertex,
@@ -177,6 +180,89 @@ describe('shape helpers', () => {
     expect(shifted.polygons[0][0][1].y).toBeCloseTo(-0.35);
     expect(shifted.polygons[0][0][2].x).toBeCloseTo(1.45);
     expect(shifted.polygons[0][0][2].y).toBeCloseTo(-0.05);
+  });
+
+  it('scales a shape against a shared selection bounding box', () => {
+    let classic = setDrawMode(clear(), DRAW_MODE_CLASSIC);
+    classic = addPoint(classic, POINT_KIND_A, { x: 0.2, y: 0.2 });
+    classic = addPoint(classic, POINT_KIND_A, { x: 0.4, y: 0.2 });
+    classic = addPoint(classic, POINT_KIND_A, { x: 0.3, y: 0.5 });
+
+    const shape = createShapeFromDraft(classic);
+    const scaled = scaleShapeFromBounds(
+      shape,
+      { minX: 0.2, maxX: 0.4, minY: 0.2, maxY: 0.5 },
+      { minX: 0.2, maxX: 0.6, minY: 0.2, maxY: 0.65 },
+    );
+
+    expect(scaled.polygons[0][0][1].x).toBeCloseTo(0.6);
+    expect(scaled.polygons[0][0][1].y).toBeCloseTo(0.2);
+    expect(scaled.polygons[0][0][2].x).toBeCloseTo(0.4);
+    expect(scaled.polygons[0][0][2].y).toBeCloseTo(0.65);
+  });
+
+  it('mirrors a shape across the selection center', () => {
+    let classic = setDrawMode(clear(), DRAW_MODE_CLASSIC);
+    classic = addPoint(classic, POINT_KIND_A, { x: 0.2, y: 0.2 });
+    classic = addPoint(classic, POINT_KIND_A, { x: 0.4, y: 0.2 });
+    classic = addPoint(classic, POINT_KIND_A, { x: 0.3, y: 0.5 });
+
+    const shape = createShapeFromDraft(classic);
+    const mirroredX = mirrorShape(shape, 'x', {
+      minX: 0.2,
+      maxX: 0.6,
+      minY: 0.2,
+      maxY: 0.5,
+    });
+    const mirroredY = mirrorShape(shape, 'y', {
+      minX: 0.2,
+      maxX: 0.6,
+      minY: 0.2,
+      maxY: 0.6,
+    });
+
+    expect(mirroredX.polygons[0][0][0].x).toBeCloseTo(0.6);
+    expect(mirroredX.polygons[0][0][0].y).toBeCloseTo(0.2);
+    expect(mirroredX.polygons[0][0][1].x).toBeCloseTo(0.4);
+    expect(mirroredX.polygons[0][0][1].y).toBeCloseTo(0.2);
+    expect(mirroredY.polygons[0][0][2].x).toBeCloseTo(0.3);
+    expect(mirroredY.polygons[0][0][2].y).toBeCloseTo(0.3);
+  });
+
+  it('cuts a square hole with the shape destroyer brush', () => {
+    let classic = setDrawMode(clear(), DRAW_MODE_CLASSIC);
+    classic = addPoint(classic, POINT_KIND_A, { x: 0.1, y: 0.1 });
+    classic = addPoint(classic, POINT_KIND_A, { x: 0.9, y: 0.1 });
+    classic = addPoint(classic, POINT_KIND_A, { x: 0.9, y: 0.9 });
+    classic = addPoint(classic, POINT_KIND_A, { x: 0.1, y: 0.9 });
+
+    const shape = createShapeFromDraft(classic);
+    const [destroyed] = eraseShapesWithSquare([shape], { x: 0.5, y: 0.5 }, 4, {
+      width: 320,
+      height: 320,
+    });
+
+    expect(destroyed).toBeTruthy();
+    expect(destroyed.id).toBe(shape.id);
+    expect(destroyed.cornerOverrides).toBeUndefined();
+    expect(destroyed.group).toBeNull();
+    expect(destroyed.polygons[0]).toHaveLength(2);
+  });
+
+  it('removes a shape completely when the destroyer stamp covers it', () => {
+    let classic = setDrawMode(clear(), DRAW_MODE_CLASSIC);
+    classic = addPoint(classic, POINT_KIND_A, { x: 0.35, y: 0.35 });
+    classic = addPoint(classic, POINT_KIND_A, { x: 0.55, y: 0.35 });
+    classic = addPoint(classic, POINT_KIND_A, { x: 0.55, y: 0.55 });
+    classic = addPoint(classic, POINT_KIND_A, { x: 0.35, y: 0.55 });
+
+    const shape = createShapeFromDraft(classic);
+    const destroyedShapes = eraseShapesWithSquare([shape], { x: 0.45, y: 0.45 }, 32, {
+      width: 320,
+      height: 320,
+    });
+
+    expect(destroyedShapes).toEqual([]);
   });
 
   it('restores source shapes when ungrouping a boolean result', () => {

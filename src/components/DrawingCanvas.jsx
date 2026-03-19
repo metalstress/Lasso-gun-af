@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { snapPointToGrid } from '../lib/grid.js';
+import { GRID_STEP_PX, snapPointToGrid } from '../lib/grid.js';
 import { DRAW_MODE_CLASSIC, POINT_KIND_A, POINT_KIND_B, getExpectedKind } from '../lib/lasso.js';
 import { findShapeIdsInLasso, findTopmostShapeIdAtPoint } from '../lib/shapes.js';
 import { drawLassoScene } from '../lib/rendering.js';
@@ -14,6 +14,7 @@ const INSERT_HANDLE_MIDPOINT_ZONE_MAX = 0.78;
 
 function DrawingCanvas({
   appearance,
+  destroyBrushCells = 8,
   editorMode,
   focusRequest = null,
   isDraftActive = false,
@@ -25,12 +26,16 @@ function DrawingCanvas({
   onEndHistoryGesture,
   onMoveShape,
   onMoveShapeVertices,
+  onDestroyShapes,
+  onTransformShapes,
+  onMirrorSelection,
   onPlacePoint,
   onPointerChange,
   onInsertShapeVertex,
   onSelectHandleIds,
   onSelectShapeIds,
   onSurfaceChange,
+  transformSelectionBounds = null,
   onToggleHandleSharpCorner,
   onUpdateShapeVertex,
   onViewportContextMenu,
@@ -39,6 +44,8 @@ function DrawingCanvas({
   const frameRef = useRef(null);
   const canvasRef = useRef(null);
   const dragRef = useRef(null);
+  const transformDragRef = useRef(null);
+  const [destroyCursorPoint, setDestroyCursorPoint] = useState(null);
   const [hoverInsertHandle, setHoverInsertHandle] = useState(null);
   const [hoveredHandleId, setHoveredHandleId] = useState(null);
   const [hoveredShapeId, setHoveredShapeId] = useState(null);
@@ -48,7 +55,25 @@ function DrawingCanvas({
   const [viewportScale, setViewportScale] = useState(1);
   const [isPanning, setIsPanning] = useState(false);
   const [isSpacePressed, setIsSpacePressed] = useState(false);
-  const isMoveEditMode = editorMode === 'select' || editorMode === 'edit';
+  const isDestroyMode = editorMode === 'destroy';
+  const isTransformMode = editorMode === 'transform';
+  const isMoveEditMode = editorMode === 'select' || editorMode === 'edit' || isTransformMode;
+  const transformOverlay = getTransformOverlayRect(
+    transformSelectionBounds,
+    surfaceSize,
+    viewportOffset,
+    viewportScale,
+  );
+  const showTransformPopup =
+    Boolean(transformOverlay) && scene.selectedShapeIds.length > 0 && isMoveEditMode;
+  const showTransformBox = Boolean(transformOverlay) && scene.selectedShapeIds.length > 0 && isTransformMode;
+  const destroyPreviewRect = getDestroyPreviewRect(
+    isDestroyMode ? destroyCursorPoint : null,
+    destroyBrushCells,
+    surfaceSize,
+    viewportOffset,
+    viewportScale,
+  );
 
   useEffect(() => {
     const frame = frameRef.current;
@@ -228,7 +253,20 @@ function DrawingCanvas({
     onPointerChange(point);
 
     if (dragRef.current && rawPoint && point) {
+      if (isDestroyMode) {
+        setDestroyCursorPoint(point);
+        setHoveredShapeId(findTopmostShapeIdAtPoint(scene.shapes, rawPoint));
+      }
+
       handleDragMove(point, rawPoint);
+      return;
+    }
+
+    if (isDestroyMode) {
+      setDestroyCursorPoint(point);
+      setHoveredHandleId(null);
+      setHoverInsertHandle(null);
+      setHoveredShapeId(findTopmostShapeIdAtPoint(scene.shapes, rawPoint));
       return;
     }
 
@@ -255,6 +293,7 @@ function DrawingCanvas({
       onPointerChange(null);
     }
 
+    setDestroyCursorPoint(null);
     setHoveredHandleId(null);
     setHoveredShapeId(null);
     setHoverInsertHandle(null);
@@ -264,10 +303,17 @@ function DrawingCanvas({
     if (!isMoveEditMode) {
       setHoveredHandleId(null);
       setHoverInsertHandle(null);
-      setHoveredShapeId(null);
       setSelectionLasso([]);
     }
-  }, [editorMode, isMoveEditMode]);
+
+    if (!isMoveEditMode && !isDestroyMode) {
+      setHoveredShapeId(null);
+    }
+
+    if (!isDestroyMode) {
+      setDestroyCursorPoint(null);
+    }
+  }, [editorMode, isDestroyMode, isMoveEditMode]);
 
   const handlePointerDown = (event) => {
     if (shouldStartPanGesture(event, isSpacePressed)) {
@@ -290,6 +336,27 @@ function DrawingCanvas({
     const point = maybeSnapPoint(rawPoint, surfaceSize, snapToGrid);
 
     if (!rawPoint || !point) {
+      return;
+    }
+
+    if (isDestroyMode) {
+      if (event.button !== 0) {
+        return;
+      }
+
+      event.preventDefault();
+      setDestroyCursorPoint(point);
+      setHoveredShapeId(findTopmostShapeIdAtPoint(scene.shapes, rawPoint));
+      setHoveredHandleId(null);
+      setHoverInsertHandle(null);
+      onBeginHistoryGesture?.();
+      onDestroyShapes?.(point, point, destroyBrushCells);
+      dragRef.current = {
+        type: 'destroy',
+        brushCells: destroyBrushCells,
+        lastPoint: point,
+      };
+      event.currentTarget.setPointerCapture?.(event.pointerId);
       return;
     }
 
@@ -351,6 +418,83 @@ function DrawingCanvas({
     onEndHistoryGesture?.();
   };
 
+  const handleTransformHandlePointerDown = (event) => {
+    if (!isTransformMode || !transformSelectionBounds || scene.selectedShapeIds.length === 0) {
+      return;
+    }
+
+    const handle = event.currentTarget.dataset.handle;
+
+    if (!handle) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    onBeginHistoryGesture?.();
+    transformDragRef.current = {
+      handle,
+      pointerId: event.pointerId,
+      sourceBounds: transformSelectionBounds,
+      baseShapes: scene.selectedShapeIds
+        .map((shapeId) => getShapeSnapshot(scene.shapes, shapeId))
+        .filter(Boolean),
+      shapeIds: [...scene.selectedShapeIds],
+      minHeight: 18 / Math.max(surfaceSize.height * viewportScale, Number.EPSILON),
+      minWidth: 18 / Math.max(surfaceSize.width * viewportScale, Number.EPSILON),
+    };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  };
+
+  const handleTransformHandlePointerMove = (event) => {
+    const transformDrag = transformDragRef.current;
+
+    if (!transformDrag || transformDrag.pointerId !== event.pointerId) {
+      return;
+    }
+
+    const point = readClientPoint(
+      event.clientX,
+      event.clientY,
+      canvasRef.current,
+      viewportOffset,
+      viewportScale,
+    );
+
+    if (!point) {
+      return;
+    }
+
+    const nextBounds = resizeBoundsFromHandle(
+      transformDrag.sourceBounds,
+      point,
+      transformDrag.handle,
+      transformDrag.minWidth,
+      transformDrag.minHeight,
+    );
+
+    onTransformShapes?.(
+      transformDrag.shapeIds,
+      transformDrag.baseShapes,
+      transformDrag.sourceBounds,
+      nextBounds,
+    );
+  };
+
+  const handleTransformHandlePointerUp = (event) => {
+    const transformDrag = transformDragRef.current;
+
+    if (!transformDrag || transformDrag.pointerId !== event.pointerId) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    transformDragRef.current = null;
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+    onEndHistoryGesture?.();
+  };
+
   const handleContextMenu = (event) => {
     event.preventDefault();
 
@@ -386,6 +530,65 @@ function DrawingCanvas({
         onPointerCancel={handlePointerUp}
         onPointerUp={handlePointerUp}
       />
+      {destroyPreviewRect ? (
+        <div
+          className="canvas-destroy-preview"
+          style={{
+            left: `${destroyPreviewRect.left}px`,
+            top: `${destroyPreviewRect.top}px`,
+            width: `${destroyPreviewRect.size}px`,
+            height: `${destroyPreviewRect.size}px`,
+          }}
+          aria-hidden="true"
+        />
+      ) : null}
+      {showTransformBox ? (
+        <div
+          className="canvas-transform-box"
+          style={{
+            left: `${transformOverlay.left}px`,
+            top: `${transformOverlay.top}px`,
+            width: `${transformOverlay.width}px`,
+            height: `${transformOverlay.height}px`,
+          }}
+          aria-hidden="true"
+        >
+          {TRANSFORM_HANDLES.map((handle) => (
+            <button
+              key={handle}
+              type="button"
+              className={`canvas-transform-handle handle-${handle}`}
+              data-handle={handle}
+              tabIndex={-1}
+              onPointerDown={handleTransformHandlePointerDown}
+              onPointerMove={handleTransformHandlePointerMove}
+              onPointerUp={handleTransformHandlePointerUp}
+              onPointerCancel={handleTransformHandlePointerUp}
+            />
+          ))}
+        </div>
+      ) : null}
+      {showTransformPopup ? (
+        <div
+          className={`canvas-transform-popover ${showTransformBox ? 'is-transform-active' : ''}`.trim()}
+          style={getTransformPopoverStyle(transformOverlay, surfaceSize)}
+        >
+          <button
+            type="button"
+            className="canvas-transform-action"
+            onClick={() => onMirrorSelection?.('x')}
+          >
+            Mirror X
+          </button>
+          <button
+            type="button"
+            className="canvas-transform-action"
+            onClick={() => onMirrorSelection?.('y')}
+          >
+            Mirror Y
+          </button>
+        </div>
+      ) : null}
     </section>
   );
 
@@ -521,6 +724,22 @@ function DrawingCanvas({
       return;
     }
 
+    if (dragRef.current.type === 'destroy') {
+      if (
+        distanceInSurface(dragRef.current.lastPoint, point, surfaceSize, viewportScale) <
+        Math.max(1, dragRef.current.brushCells * 0.14)
+      ) {
+        return;
+      }
+
+      onDestroyShapes?.(dragRef.current.lastPoint, point, dragRef.current.brushCells);
+      dragRef.current = {
+        ...dragRef.current,
+        lastPoint: point,
+      };
+      return;
+    }
+
     const delta = {
       x: point.x - dragRef.current.originPoint.x,
       y: point.y - dragRef.current.originPoint.y,
@@ -604,6 +823,8 @@ function DrawingCanvas({
   }
 }
 
+const TRANSFORM_HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
+
 function shouldStartPanGesture(event, isSpacePressed) {
   if (event.pointerType !== 'mouse') {
     return false;
@@ -664,6 +885,22 @@ function readCanvasPoint(event, canvas, viewOffset = { x: 0, y: 0 }, viewScale =
   }
 
   return { x, y };
+}
+
+function readClientPoint(clientX, clientY, canvas, viewOffset = { x: 0, y: 0 }, viewScale = 1) {
+  if (!canvas) {
+    return null;
+  }
+
+  return readCanvasPoint(
+    {
+      clientX,
+      clientY,
+    },
+    canvas,
+    viewOffset,
+    viewScale,
+  );
 }
 
 function findHandleAtPoint(handles = [], point, surfaceSize, viewScale = 1) {
@@ -822,6 +1059,85 @@ function clampScale(value) {
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
+}
+
+function getTransformOverlayRect(bounds, surfaceSize, viewOffset = { x: 0, y: 0 }, viewScale = 1) {
+  if (!bounds) {
+    return null;
+  }
+
+  const left = bounds.minX * surfaceSize.width * viewScale + viewOffset.x;
+  const top = bounds.minY * surfaceSize.height * viewScale + viewOffset.y;
+  const right = bounds.maxX * surfaceSize.width * viewScale + viewOffset.x;
+  const bottom = bounds.maxY * surfaceSize.height * viewScale + viewOffset.y;
+
+  return {
+    bottom,
+    centerX: (left + right) * 0.5,
+    height: Math.max(1, bottom - top),
+    left,
+    right,
+    top,
+    width: Math.max(1, right - left),
+  };
+}
+
+function getTransformPopoverStyle(overlay, surfaceSize) {
+  const width = 168;
+  const height = 44;
+  const margin = 12;
+  const maxLeft = Math.max(margin, surfaceSize.width - width - margin);
+  const left = clamp(overlay.centerX - width * 0.5, margin, maxLeft);
+  const preferredTop = overlay.bottom + 14;
+  const top =
+    preferredTop + height <= surfaceSize.height - margin
+      ? preferredTop
+      : Math.max(margin, overlay.top - height - 14);
+
+  return {
+    left: `${left}px`,
+    top: `${top}px`,
+  };
+}
+
+function getDestroyPreviewRect(point, brushCells, surfaceSize, viewOffset = { x: 0, y: 0 }, viewScale = 1) {
+  if (!point || !surfaceSize?.width || !surfaceSize?.height) {
+    return null;
+  }
+
+  const size = Math.max(8, brushCells * GRID_STEP_PX * viewScale);
+  const centerX = point.x * surfaceSize.width * viewScale + viewOffset.x;
+  const centerY = point.y * surfaceSize.height * viewScale + viewOffset.y;
+
+  return {
+    left: centerX - size * 0.5,
+    size,
+    top: centerY - size * 0.5,
+  };
+}
+
+function resizeBoundsFromHandle(bounds, point, handle, minWidth, minHeight) {
+  const nextBounds = {
+    ...bounds,
+  };
+
+  if (handle.includes('w')) {
+    nextBounds.minX = Math.min(point.x, bounds.maxX - minWidth);
+  }
+
+  if (handle.includes('e')) {
+    nextBounds.maxX = Math.max(point.x, bounds.minX + minWidth);
+  }
+
+  if (handle.includes('n')) {
+    nextBounds.minY = Math.min(point.y, bounds.maxY - minHeight);
+  }
+
+  if (handle.includes('s')) {
+    nextBounds.maxY = Math.max(point.y, bounds.minY + minHeight);
+  }
+
+  return nextBounds;
 }
 
 function isSameInsertHandle(left, right) {
