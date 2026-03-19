@@ -147,6 +147,7 @@ function App() {
   const dockToolbarRef = useRef(null);
   const workspaceRef = useRef(null);
   const previousThemeRef = useRef(THEME_MONO);
+  const hasExplicitDrawModeChoiceRef = useRef(false);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -177,6 +178,19 @@ function App() {
       setMobilePanel(null);
     }
   }, [isMobileLayout, mobilePanel]);
+
+  useEffect(() => {
+    if (
+      !isMobileLayout ||
+      hasExplicitDrawModeChoiceRef.current ||
+      hasAnyPoints(drawingState) ||
+      drawingState.mode === DRAW_MODE_CLASSIC
+    ) {
+      return;
+    }
+
+    setDrawingState((current) => setDrawMode(current, DRAW_MODE_CLASSIC));
+  }, [drawingState, isMobileLayout]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -399,7 +413,7 @@ function App() {
             }
             event.preventDefault();
             hideToolbarTooltip();
-            handleDrawModeChange(DRAW_MODE_DUAL);
+            handleDrawModeChange(DRAW_MODE_CLASSIC);
             return;
           case 'Digit2':
             if (isOverlayOpen) {
@@ -407,7 +421,7 @@ function App() {
             }
             event.preventDefault();
             hideToolbarTooltip();
-            handleDrawModeChange(DRAW_MODE_CLASSIC);
+            handleDrawModeChange(DRAW_MODE_DUAL);
             return;
           case 'KeyG':
             if (isOverlayOpen) {
@@ -989,8 +1003,13 @@ function App() {
     }));
   };
 
-  const handleDrawModeChange = (mode) => {
+  const handleDrawModeChange = (mode, options = {}) => {
     hideToolbarTooltip();
+
+    if (!options.passive) {
+      hasExplicitDrawModeChoiceRef.current = true;
+    }
+
     commitHistoryChange((snapshot) => ({
       ...snapshot,
       drawingState: setDrawMode(snapshot.drawingState, mode),
@@ -2503,24 +2522,24 @@ function App() {
               <div className="tool-chip-group" aria-label="Draw mode selector">
                 <button
                   type="button"
-                  className={drawingState.mode === DRAW_MODE_DUAL ? 'is-active' : ''}
-                  aria-label="Dual-Point (1)"
-                  onClick={() => handleDrawModeChange(DRAW_MODE_DUAL)}
-                  {...getToolbarTooltipProps('Dual-Point', '1')}
+                  className={`classic-toggle ${drawingState.mode === DRAW_MODE_CLASSIC ? 'is-active' : ''}`}
+                  aria-label="Classic Lasso (1)"
+                  onClick={() => handleDrawModeChange(DRAW_MODE_CLASSIC)}
+                  {...getToolbarTooltipProps('Classic Lasso', '1')}
                 >
                   <span className="tool-button-icon" aria-hidden="true">
-                    <DualPointModeIcon />
+                    <ClassicLassoModeIcon />
                   </span>
                 </button>
                 <button
                   type="button"
-                  className={`classic-toggle ${drawingState.mode === DRAW_MODE_CLASSIC ? 'is-active' : ''}`}
-                  aria-label="Classic Lasso (2)"
-                  onClick={() => handleDrawModeChange(DRAW_MODE_CLASSIC)}
-                  {...getToolbarTooltipProps('Classic Lasso', '2')}
+                  className={drawingState.mode === DRAW_MODE_DUAL ? 'is-active' : ''}
+                  aria-label="Dual-Point (2)"
+                  onClick={() => handleDrawModeChange(DRAW_MODE_DUAL)}
+                  {...getToolbarTooltipProps('Dual-Point', '2')}
                 >
                   <span className="tool-button-icon" aria-hidden="true">
-                    <ClassicLassoModeIcon />
+                    <DualPointModeIcon />
                   </span>
                 </button>
               </div>
