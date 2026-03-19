@@ -1646,6 +1646,29 @@ input[type="range"] {
   z-index: 12;
 }
 
+.mode-dock.desktop-viewport-dock {
+  position: fixed;
+  display: flex;
+  justify-content: center;
+  align-items: end;
+}
+
+.desktop-viewport-dock .dock-controls {
+  justify-self: auto;
+  margin-inline: auto;
+}
+
+.desktop-viewport-dock .dock-toolbar {
+  width: max-content;
+}
+
+.desktop-viewport-dock .mascot-shell {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  margin-left: 0;
+}
+
 .dock-controls {
   display: flex;
   flex-wrap: wrap;

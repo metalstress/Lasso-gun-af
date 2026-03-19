@@ -2559,7 +2559,7 @@ function App() {
           </section>
         </>
       ) : (
-        <section className="mode-dock viewport-dock" style={dockStyle}>
+        <section className="mode-dock viewport-dock desktop-viewport-dock" style={dockStyle}>
           <div className="dock-controls dock-toolbar" ref={dockToolbarRef}>
             <div className="tool-cluster tool-cluster-draw">
               <ToolButton
