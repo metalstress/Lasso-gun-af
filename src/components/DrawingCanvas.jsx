@@ -50,6 +50,7 @@ function DrawingCanvas({
   const dragRef = useRef(null);
   const transformDragRef = useRef(null);
   const fileDragDepthRef = useRef(0);
+  const fileDragPositionRef = useRef(null);
   const [destroyCursorPoint, setDestroyCursorPoint] = useState(null);
   const [hoverInsertHandle, setHoverInsertHandle] = useState(null);
   const [hoveredHandleId, setHoveredHandleId] = useState(null);
@@ -135,70 +136,74 @@ function DrawingCanvas({
       return undefined;
     }
 
-    const isEventInsideFrame = (event) => {
-      const bounds = frame.getBoundingClientRect();
-      return (
-        event.clientX >= bounds.left &&
-        event.clientX <= bounds.right &&
-        event.clientY >= bounds.top &&
-        event.clientY <= bounds.bottom
-      );
-    };
-
     const resetSvgDropState = () => {
       fileDragDepthRef.current = 0;
+      fileDragPositionRef.current = null;
       setIsSvgDropActive(false);
     };
 
-    const handleWindowDragOver = (event) => {
+    const handleDocumentDragOver = (event) => {
       if (!hasFileDragPayload(event.dataTransfer)) {
-        return;
-      }
-
-      if (!isEventInsideFrame(event)) {
-        if (isSvgDropActive) {
-          setIsSvgDropActive(false);
-        }
         return;
       }
 
       event.preventDefault();
+      event.stopPropagation();
       event.dataTransfer.dropEffect = 'copy';
+      const clientPosition = resolveEventClientPosition(event, fileDragPositionRef.current);
 
-      if (!isSvgDropActive) {
+      if (clientPosition) {
+        fileDragPositionRef.current = clientPosition;
+      }
+
+      const isInsideFrame = isPointInsideClientRect(
+        clientPosition,
+        frame.getBoundingClientRect(),
+      );
+
+      if (isInsideFrame && !isSvgDropActive) {
         setIsSvgDropActive(true);
+      } else if (!isInsideFrame && isSvgDropActive) {
+        setIsSvgDropActive(false);
       }
     };
 
-    const handleWindowDrop = async (event) => {
+    const handleDocumentDrop = async (event) => {
       if (!hasFileDragPayload(event.dataTransfer)) {
-        return;
-      }
-
-      const droppedSvgFile = extractDroppedSvgFile(event.dataTransfer);
-      const isInsideFrame = isEventInsideFrame(event);
-
-      resetSvgDropState();
-
-      if (!droppedSvgFile || !isInsideFrame) {
         return;
       }
 
       event.preventDefault();
       event.stopPropagation();
 
-      const rawPoint = readClientPoint(
-        event.clientX,
-        event.clientY,
-        canvasRef.current,
-        viewportOffset,
-        viewportScale,
+      const droppedSvgFile = extractDroppedSvgFile(event.dataTransfer);
+      const clientPosition = resolveEventClientPosition(event, fileDragPositionRef.current);
+      const isInsideFrame = isPointInsideClientRect(
+        clientPosition,
+        frame.getBoundingClientRect(),
       );
+
+      resetSvgDropState();
+
+      if (!droppedSvgFile) {
+        return;
+      }
+
+      const rawPoint =
+        clientPosition && isInsideFrame
+          ? readClientPoint(
+              clientPosition.x,
+              clientPosition.y,
+              canvasRef.current,
+              viewportOffset,
+              viewportScale,
+            )
+          : null;
       const point = maybeSnapPoint(rawPoint, surfaceSize, snapToGrid);
       await onImportSvg?.(droppedSvgFile, point);
     };
 
-    const handleWindowDragLeave = (event) => {
+    const handleDocumentDragLeave = (event) => {
       if (!hasFileDragPayload(event.dataTransfer)) {
         return;
       }
@@ -208,14 +213,17 @@ function DrawingCanvas({
       }
     };
 
-    window.addEventListener('dragover', handleWindowDragOver, { passive: false });
-    window.addEventListener('drop', handleWindowDrop);
-    window.addEventListener('dragleave', handleWindowDragLeave);
+    document.addEventListener('dragover', handleDocumentDragOver, {
+      passive: false,
+      capture: true,
+    });
+    document.addEventListener('drop', handleDocumentDrop, true);
+    document.addEventListener('dragleave', handleDocumentDragLeave, true);
 
     return () => {
-      window.removeEventListener('dragover', handleWindowDragOver);
-      window.removeEventListener('drop', handleWindowDrop);
-      window.removeEventListener('dragleave', handleWindowDragLeave);
+      document.removeEventListener('dragover', handleDocumentDragOver, true);
+      document.removeEventListener('drop', handleDocumentDrop, true);
+      document.removeEventListener('dragleave', handleDocumentDragLeave, true);
     };
   }, [isSvgDropActive, onImportSvg, snapToGrid, surfaceSize, viewportOffset, viewportScale]);
 
@@ -795,6 +803,12 @@ function DrawingCanvas({
     }
 
     event.preventDefault();
+    const clientPosition = resolveEventClientPosition(event, fileDragPositionRef.current);
+
+    if (clientPosition) {
+      fileDragPositionRef.current = clientPosition;
+    }
+
     fileDragDepthRef.current += 1;
     setIsSvgDropActive(true);
   };
@@ -806,6 +820,12 @@ function DrawingCanvas({
 
     event.preventDefault();
     event.stopPropagation();
+    const clientPosition = resolveEventClientPosition(event, fileDragPositionRef.current);
+
+    if (clientPosition) {
+      fileDragPositionRef.current = clientPosition;
+    }
+
     event.dataTransfer.dropEffect = 'copy';
     if (!isSvgDropActive) {
       setIsSvgDropActive(true);
@@ -841,7 +861,16 @@ function DrawingCanvas({
       return;
     }
 
-    const rawPoint = readCanvasPoint(event, canvasRef.current, viewportOffset, viewportScale);
+    const clientPosition = resolveEventClientPosition(event, fileDragPositionRef.current);
+    const rawPoint = clientPosition
+      ? readClientPoint(
+          clientPosition.x,
+          clientPosition.y,
+          canvasRef.current,
+          viewportOffset,
+          viewportScale,
+        )
+      : readCanvasPoint(event, canvasRef.current, viewportOffset, viewportScale);
     const point = maybeSnapPoint(rawPoint, surfaceSize, snapToGrid);
     await onImportSvg?.(svgFile, point);
   };
@@ -1438,6 +1467,40 @@ function extractDroppedSvgFile(dataTransfer) {
       .filter((item) => item.kind === 'file')
       .map((item) => item.getAsFile?.())
       .find((file) => isSvgFile(file)) ?? null
+  );
+}
+
+function resolveEventClientPosition(event, fallbackPosition = null) {
+  const x = Number(event?.clientX);
+  const y = Number(event?.clientY);
+
+  if (Number.isFinite(x) && Number.isFinite(y) && (x !== 0 || y !== 0)) {
+    return { x, y };
+  }
+
+  if (
+    Number.isFinite(fallbackPosition?.x) &&
+    Number.isFinite(fallbackPosition?.y)
+  ) {
+    return {
+      x: fallbackPosition.x,
+      y: fallbackPosition.y,
+    };
+  }
+
+  return null;
+}
+
+function isPointInsideClientRect(point, rect) {
+  if (!point || !rect) {
+    return false;
+  }
+
+  return (
+    point.x >= rect.left &&
+    point.x <= rect.right &&
+    point.y >= rect.top &&
+    point.y <= rect.bottom
   );
 }
 
