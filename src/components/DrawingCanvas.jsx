@@ -129,6 +129,97 @@ function DrawingCanvas({
   }, []);
 
   useEffect(() => {
+    const frame = frameRef.current;
+
+    if (!frame) {
+      return undefined;
+    }
+
+    const isEventInsideFrame = (event) => {
+      const bounds = frame.getBoundingClientRect();
+      return (
+        event.clientX >= bounds.left &&
+        event.clientX <= bounds.right &&
+        event.clientY >= bounds.top &&
+        event.clientY <= bounds.bottom
+      );
+    };
+
+    const resetSvgDropState = () => {
+      fileDragDepthRef.current = 0;
+      setIsSvgDropActive(false);
+    };
+
+    const handleWindowDragOver = (event) => {
+      if (!hasFileDragPayload(event.dataTransfer)) {
+        return;
+      }
+
+      if (!isEventInsideFrame(event)) {
+        if (isSvgDropActive) {
+          setIsSvgDropActive(false);
+        }
+        return;
+      }
+
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'copy';
+
+      if (!isSvgDropActive) {
+        setIsSvgDropActive(true);
+      }
+    };
+
+    const handleWindowDrop = async (event) => {
+      if (!hasFileDragPayload(event.dataTransfer)) {
+        return;
+      }
+
+      const droppedSvgFile = extractDroppedSvgFile(event.dataTransfer);
+      const isInsideFrame = isEventInsideFrame(event);
+
+      resetSvgDropState();
+
+      if (!droppedSvgFile || !isInsideFrame) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      const rawPoint = readClientPoint(
+        event.clientX,
+        event.clientY,
+        canvasRef.current,
+        viewportOffset,
+        viewportScale,
+      );
+      const point = maybeSnapPoint(rawPoint, surfaceSize, snapToGrid);
+      await onImportSvg?.(droppedSvgFile, point);
+    };
+
+    const handleWindowDragLeave = (event) => {
+      if (!hasFileDragPayload(event.dataTransfer)) {
+        return;
+      }
+
+      if (event.clientX <= 0 || event.clientY <= 0) {
+        resetSvgDropState();
+      }
+    };
+
+    window.addEventListener('dragover', handleWindowDragOver, { passive: false });
+    window.addEventListener('drop', handleWindowDrop);
+    window.addEventListener('dragleave', handleWindowDragLeave);
+
+    return () => {
+      window.removeEventListener('dragover', handleWindowDragOver);
+      window.removeEventListener('drop', handleWindowDrop);
+      window.removeEventListener('dragleave', handleWindowDragLeave);
+    };
+  }, [isSvgDropActive, onImportSvg, snapToGrid, surfaceSize, viewportOffset, viewportScale]);
+
+  useEffect(() => {
     onSurfaceChange?.(surfaceSize);
   }, [onSurfaceChange, surfaceSize]);
 
