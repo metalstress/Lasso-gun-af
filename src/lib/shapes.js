@@ -11,6 +11,10 @@ export const BOOLEAN_UNION = 'union';
 export const BOOLEAN_SUBTRACT = 'subtract';
 export const BOOLEAN_INTERSECT = 'intersect';
 export const BOOLEAN_XOR = 'xor';
+export const ALIGN_LEFT = 'left';
+export const ALIGN_RIGHT = 'right';
+export const ALIGN_TOP = 'top';
+export const ALIGN_BOTTOM = 'bottom';
 
 let shapeCounter = 0;
 let groupCounter = 0;
@@ -173,6 +177,39 @@ export function deleteShapeVertices(shape, locations) {
   };
 }
 
+export function deleteShapeVerticesAndSelectNext(shape, locations) {
+  if (!shape || !isShapeEditable(shape) || !locations || locations.length === 0) {
+    return {
+      nextSelectedHandleIds: [],
+      shape,
+    };
+  }
+
+  const deletionGroups = normalizeVertexDeletionGroups(shape, locations);
+
+  if (deletionGroups.size === 0) {
+    return {
+      nextSelectedHandleIds: [],
+      shape,
+    };
+  }
+
+  const nextOriginalHandleIds = collectNextHandleIdsAfterDelete(shape, deletionGroups);
+  const { polygons, cornerOverrides, handleRemap } = applyVertexDeletion(shape, deletionGroups);
+  const nextShape = {
+    ...shape,
+    cornerOverrides,
+    polygons,
+  };
+
+  return {
+    nextSelectedHandleIds: nextOriginalHandleIds
+      .map((handleId) => handleRemap.get(handleId))
+      .filter(Boolean),
+    shape: nextShape,
+  };
+}
+
 export function moveShape(shape, delta) {
   if (!shape) {
     return shape;
@@ -191,6 +228,31 @@ export function moveShape(shape, delta) {
       ),
     ),
   };
+}
+
+export function alignShapeToBounds(shape, alignment, bounds) {
+  if (!shape || !bounds) {
+    return shape;
+  }
+
+  const shapeBounds = getShapeBounds(shape);
+  let delta = null;
+
+  if (alignment === ALIGN_LEFT) {
+    delta = { x: bounds.minX - shapeBounds.minX, y: 0 };
+  } else if (alignment === ALIGN_RIGHT) {
+    delta = { x: bounds.maxX - shapeBounds.maxX, y: 0 };
+  } else if (alignment === ALIGN_TOP) {
+    delta = { x: 0, y: bounds.minY - shapeBounds.minY };
+  } else if (alignment === ALIGN_BOTTOM) {
+    delta = { x: 0, y: bounds.maxY - shapeBounds.maxY };
+  }
+
+  if (!delta || (delta.x === 0 && delta.y === 0)) {
+    return shape;
+  }
+
+  return moveShape(shape, delta);
 }
 
 export function scaleShapeFromBounds(shape, sourceBounds, targetBounds) {
@@ -1156,9 +1218,45 @@ function applyVertexDeletion(shape, deletionGroups) {
   });
 
   return {
+    handleRemap,
     polygons: nextPolygons,
     cornerOverrides: remapCornerOverrides(shape.cornerOverrides, handleRemap),
   };
+}
+
+function collectNextHandleIdsAfterDelete(shape, deletionGroups) {
+  const nextHandleIds = new Set();
+
+  deletionGroups.forEach((deletionGroup, ringKey) => {
+    if (deletionGroup.removeRing || deletionGroup.removePolygon) {
+      return;
+    }
+
+    const [polygonIndex, ringIndex] = ringKey.split(':').map((value) => Number.parseInt(value, 10));
+    const ring = shape.polygons?.[polygonIndex]?.[ringIndex];
+
+    if (!Array.isArray(ring) || ring.length === 0) {
+      return;
+    }
+
+    deletionGroup.indices.forEach((deletedIndex) => {
+      const nextPointIndex = findNextSurvivingPointIndex(ring.length, deletionGroup.deleteSet, deletedIndex);
+
+      if (!Number.isInteger(nextPointIndex)) {
+        return;
+      }
+
+      nextHandleIds.add(
+        createHandleId({
+          polygonIndex,
+          ringIndex,
+          pointIndex: nextPointIndex,
+        }),
+      );
+    });
+  });
+
+  return Array.from(nextHandleIds);
 }
 
 function remapCornerOverrides(cornerOverrides, handleRemap) {
@@ -1207,6 +1305,22 @@ function countDeletedIndicesBefore(indices, pointIndex) {
   }
 
   return deletedCount;
+}
+
+function findNextSurvivingPointIndex(ringLength, deleteSet, deletedIndex) {
+  if (!Number.isInteger(ringLength) || ringLength <= 0) {
+    return null;
+  }
+
+  for (let step = 1; step <= ringLength; step += 1) {
+    const candidateIndex = (deletedIndex + step) % ringLength;
+
+    if (!deleteSet.has(candidateIndex)) {
+      return candidateIndex;
+    }
+  }
+
+  return null;
 }
 
 function createRingLocationKey(polygonIndex, ringIndex) {

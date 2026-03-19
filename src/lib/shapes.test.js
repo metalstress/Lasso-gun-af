@@ -1,9 +1,15 @@
 import { DRAW_MODE_CLASSIC, POINT_KIND_A, POINT_KIND_B, addPoint, clear, setDrawMode } from './lasso.js';
 import {
+  ALIGN_BOTTOM,
+  ALIGN_LEFT,
+  ALIGN_RIGHT,
+  ALIGN_TOP,
   BOOLEAN_UNION,
   BOOLEAN_XOR,
+  alignShapeToBounds,
   createShapeFromDraft,
   deleteShapeVertices,
+  deleteShapeVerticesAndSelectNext,
   duplicateShapes,
   eraseShapesWithSquare,
   flattenShapes,
@@ -165,6 +171,43 @@ describe('shape helpers', () => {
     ]);
   });
 
+  it('keeps the next point selected after deleting a vertex', () => {
+    let classic = setDrawMode(clear(), DRAW_MODE_CLASSIC);
+    classic = addPoint(classic, POINT_KIND_A, { x: 0.2, y: 0.2 });
+    classic = addPoint(classic, POINT_KIND_A, { x: 0.8, y: 0.2 });
+    classic = addPoint(classic, POINT_KIND_A, { x: 0.8, y: 0.5 });
+    classic = addPoint(classic, POINT_KIND_A, { x: 0.2, y: 0.5 });
+
+    const shape = createShapeFromDraft(classic);
+    const result = deleteShapeVerticesAndSelectNext(shape, [
+      { polygonIndex: 0, ringIndex: 0, pointIndex: 1 },
+    ]);
+
+    expect(result.shape.polygons[0][0]).toEqual([
+      { x: 0.2, y: 0.2 },
+      { x: 0.8, y: 0.5 },
+      { x: 0.2, y: 0.5 },
+    ]);
+    expect(result.nextSelectedHandleIds).toEqual(['0:0:1']);
+  });
+
+  it('wraps selection to the first surviving point when deleting the last vertex', () => {
+    let classic = setDrawMode(clear(), DRAW_MODE_CLASSIC);
+    classic = addPoint(classic, POINT_KIND_A, { x: 0.2, y: 0.2 });
+    classic = addPoint(classic, POINT_KIND_A, { x: 0.8, y: 0.2 });
+    classic = addPoint(classic, POINT_KIND_A, { x: 0.8, y: 0.5 });
+    classic = addPoint(classic, POINT_KIND_A, { x: 0.5, y: 0.7 });
+    classic = addPoint(classic, POINT_KIND_A, { x: 0.2, y: 0.5 });
+
+    const shape = createShapeFromDraft(classic);
+    const result = deleteShapeVerticesAndSelectNext(shape, [
+      { polygonIndex: 0, ringIndex: 0, pointIndex: 4 },
+    ]);
+
+    expect(result.shape.polygons[0][0]).toHaveLength(4);
+    expect(result.nextSelectedHandleIds).toEqual(['0:0:0']);
+  });
+
   it('moves shapes freely beyond the original viewport bounds', () => {
     let classic = setDrawMode(clear(), DRAW_MODE_CLASSIC);
     classic = addPoint(classic, POINT_KIND_A, { x: 0.2, y: 0.2 });
@@ -180,6 +223,45 @@ describe('shape helpers', () => {
     expect(shifted.polygons[0][0][1].y).toBeCloseTo(-0.35);
     expect(shifted.polygons[0][0][2].x).toBeCloseTo(1.45);
     expect(shifted.polygons[0][0][2].y).toBeCloseTo(-0.05);
+  });
+
+  it('aligns a shape to shared selection edges', () => {
+    let classic = setDrawMode(clear(), DRAW_MODE_CLASSIC);
+    classic = addPoint(classic, POINT_KIND_A, { x: 0.3, y: 0.25 });
+    classic = addPoint(classic, POINT_KIND_A, { x: 0.45, y: 0.25 });
+    classic = addPoint(classic, POINT_KIND_A, { x: 0.45, y: 0.45 });
+    classic = addPoint(classic, POINT_KIND_A, { x: 0.3, y: 0.45 });
+
+    const shape = createShapeFromDraft(classic);
+    const leftAligned = alignShapeToBounds(shape, ALIGN_LEFT, {
+      minX: 0.1,
+      maxX: 0.8,
+      minY: 0.05,
+      maxY: 0.9,
+    });
+    const rightAligned = alignShapeToBounds(shape, ALIGN_RIGHT, {
+      minX: 0.1,
+      maxX: 0.8,
+      minY: 0.05,
+      maxY: 0.9,
+    });
+    const topAligned = alignShapeToBounds(shape, ALIGN_TOP, {
+      minX: 0.1,
+      maxX: 0.8,
+      minY: 0.05,
+      maxY: 0.9,
+    });
+    const bottomAligned = alignShapeToBounds(shape, ALIGN_BOTTOM, {
+      minX: 0.1,
+      maxX: 0.8,
+      minY: 0.05,
+      maxY: 0.9,
+    });
+
+    expect(leftAligned.polygons[0][0][0].x).toBeCloseTo(0.1);
+    expect(rightAligned.polygons[0][0][1].x).toBeCloseTo(0.8);
+    expect(topAligned.polygons[0][0][0].y).toBeCloseTo(0.05);
+    expect(bottomAligned.polygons[0][0][2].y).toBeCloseTo(0.9);
   });
 
   it('scales a shape against a shared selection bounding box', () => {

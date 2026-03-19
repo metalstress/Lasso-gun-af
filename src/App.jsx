@@ -26,14 +26,19 @@ import {
   undo,
 } from './lib/lasso.js';
 import {
+  ALIGN_BOTTOM,
+  ALIGN_LEFT,
+  ALIGN_RIGHT,
+  ALIGN_TOP,
   BOOLEAN_INTERSECT,
   BOOLEAN_SUBTRACT,
   BOOLEAN_UNION,
   BOOLEAN_XOR,
+  alignShapeToBounds,
   createHandleId,
   createShapeFromDraft,
   createShapeFromPolygons,
-  deleteShapeVertices,
+  deleteShapeVerticesAndSelectNext,
   duplicateShapes,
   eraseShapesAlongSegment,
   flattenShapes,
@@ -633,6 +638,7 @@ function App() {
   const canUngroupSelection = selectedShapes.some((shape) => Boolean(shape.group));
   const canFlattenSelection =
     selectedShapes.length >= 2 || selectedShapes.some((shape) => Boolean(shape.group));
+  const canAlignSelection = selectedShapeIds.length >= 2;
   const workflowLabel = getWorkflowLabel(activeEditorMode);
   const exportButtonLabel =
     isSelectionWorkflow && canExportSelection ? 'Export Selected' : 'Export';
@@ -1568,12 +1574,14 @@ function App() {
           return snapshot;
         }
 
+        const nextShape = deleteShapeVerticesAndSelectNext(shape, locations);
+
         return {
           ...snapshot,
           shapes: snapshot.shapes.map((currentShape) =>
-            currentShape.id === shapeId ? deleteShapeVertices(currentShape, locations) : currentShape,
+            currentShape.id === shapeId ? nextShape.shape : currentShape,
           ),
-          selectedHandleIds: [],
+          selectedHandleIds: nextShape.nextSelectedHandleIds,
           selectedShapeIds: [shapeId],
           editorMode: EDITOR_MODE_SELECT,
         };
@@ -1772,6 +1780,39 @@ function App() {
         ),
       };
     });
+    return true;
+  };
+
+  const handleAlignSelectedShapes = (alignment) => {
+    if (!canAlignSelection) {
+      return false;
+    }
+
+    commitHistoryChange((snapshot) => {
+      if (snapshot.selectedShapeIds.length < 2) {
+        return snapshot;
+      }
+
+      const orderedSelection = snapshot.selectedShapeIds
+        .map((shapeId) => snapshot.shapes.find((shape) => shape.id === shapeId))
+        .filter(Boolean);
+      const selectionBounds = getShapesBounds(orderedSelection);
+
+      if (!selectionBounds) {
+        return snapshot;
+      }
+
+      const selectedSet = new Set(snapshot.selectedShapeIds);
+
+      return {
+        ...snapshot,
+        selectedHandleIds: [],
+        shapes: snapshot.shapes.map((shape) =>
+          selectedSet.has(shape.id) ? alignShapeToBounds(shape, alignment, selectionBounds) : shape,
+        ),
+      };
+    });
+
     return true;
   };
 
@@ -2154,6 +2195,59 @@ function App() {
                 <p className="card-note">
                   Flatten bakes the current composite into one plain shape and removes ungroup history.
                 </p>
+              </section>
+
+              <section className="meta-card meta-card-shape-align">
+                <div className="section-head">
+                  <p className="section-label">Shape Align</p>
+                </div>
+
+                <div className="button-row">
+                  <button
+                    type="button"
+                    className="secondary-button align-action-button"
+                    onClick={() => handleAlignSelectedShapes(ALIGN_LEFT)}
+                    disabled={!canAlignSelection}
+                  >
+                    <span className="align-action-icon" aria-hidden="true">
+                      <AlignLeftIcon />
+                    </span>
+                    <span>Align Left</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary-button align-action-button"
+                    onClick={() => handleAlignSelectedShapes(ALIGN_RIGHT)}
+                    disabled={!canAlignSelection}
+                  >
+                    <span className="align-action-icon" aria-hidden="true">
+                      <AlignRightIcon />
+                    </span>
+                    <span>Align Right</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary-button align-action-button"
+                    onClick={() => handleAlignSelectedShapes(ALIGN_TOP)}
+                    disabled={!canAlignSelection}
+                  >
+                    <span className="align-action-icon" aria-hidden="true">
+                      <AlignTopIcon />
+                    </span>
+                    <span>Align Top</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary-button align-action-button"
+                    onClick={() => handleAlignSelectedShapes(ALIGN_BOTTOM)}
+                    disabled={!canAlignSelection}
+                  >
+                    <span className="align-action-icon" aria-hidden="true">
+                      <AlignBottomIcon />
+                    </span>
+                    <span>Align Bottom</span>
+                  </button>
+                </div>
               </section>
 
               <section className="meta-card meta-card-appearance appearance-card">
@@ -3230,6 +3324,46 @@ function DeleteSelectedIcon() {
     <svg viewBox="0 0 16 16" aria-hidden="true">
       <path d="M4.2 4.2 11.8 11.8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
       <path d="M11.8 4.2 4.2 11.8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function AlignLeftIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M3 2.5v11" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <rect x="5.3" y="3.8" width="6.7" height="2.8" rx="0.8" fill="none" stroke="currentColor" strokeWidth="1.2" />
+      <rect x="5.3" y="9.4" width="4.8" height="2.8" rx="0.8" fill="none" stroke="currentColor" strokeWidth="1.2" />
+    </svg>
+  );
+}
+
+function AlignRightIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M13 2.5v11" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <rect x="4" y="3.8" width="6.7" height="2.8" rx="0.8" fill="none" stroke="currentColor" strokeWidth="1.2" />
+      <rect x="5.9" y="9.4" width="4.8" height="2.8" rx="0.8" fill="none" stroke="currentColor" strokeWidth="1.2" />
+    </svg>
+  );
+}
+
+function AlignTopIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M2.5 3h11" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <rect x="3.8" y="5.3" width="2.8" height="6.7" rx="0.8" fill="none" stroke="currentColor" strokeWidth="1.2" />
+      <rect x="9.4" y="5.3" width="2.8" height="4.8" rx="0.8" fill="none" stroke="currentColor" strokeWidth="1.2" />
+    </svg>
+  );
+}
+
+function AlignBottomIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M2.5 13h11" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <rect x="3.8" y="4" width="2.8" height="6.7" rx="0.8" fill="none" stroke="currentColor" strokeWidth="1.2" />
+      <rect x="9.4" y="5.9" width="2.8" height="4.8" rx="0.8" fill="none" stroke="currentColor" strokeWidth="1.2" />
     </svg>
   );
 }
