@@ -27,6 +27,8 @@ import {
 } from './lib/lasso.js';
 import {
   ALIGN_BOTTOM,
+  ALIGN_CENTER_X,
+  ALIGN_CENTER_Y,
   ALIGN_LEFT,
   ALIGN_RIGHT,
   ALIGN_TOP,
@@ -336,6 +338,13 @@ function App() {
 
       if (!isFormField && !hasModifier && !event.altKey && !event.shiftKey) {
         if (event.key === 'Enter') {
+          if (!isOverlayOpen && activeEditorMode === EDITOR_MODE_TRANSFORM) {
+            event.preventDefault();
+            hideToolbarTooltip();
+            handleEditorModeChange(EDITOR_MODE_SELECT);
+            return;
+          }
+
           if (isOverlayOpen || activeEditorMode !== EDITOR_MODE_DRAW || !canCommitDraft) {
             return;
           }
@@ -1954,11 +1963,11 @@ function App() {
         />
 
         <main className="workspace" ref={workspaceRef}>
-          <DrawingCanvas
-            appearance={appearance}
-            destroyBrushCells={destroyBrushCells}
-            editorMode={activeEditorMode}
-            isSequentialDualPoint={isSequentialDualPoint}
+            <DrawingCanvas
+              appearance={appearance}
+              destroyBrushCells={destroyBrushCells}
+              editorMode={activeEditorMode}
+              isSequentialDualPoint={isSequentialDualPoint}
             onDuplicateShapeDragStart={handleDuplicateShapesForDrag}
             isDraftActive={isDraftActive}
             isDraftReady={isFinishShapeReady}
@@ -1967,9 +1976,10 @@ function App() {
             onEndHistoryGesture={endHistoryGesture}
             onMoveShape={handleMoveShape}
             onMoveShapeVertices={handleMoveShapeVertices}
-            onDestroyShapes={handleDestroyShapes}
-            onTransformShapes={handleTransformShapes}
-            onMirrorSelection={handleMirrorSelectedShapes}
+              onDestroyShapes={handleDestroyShapes}
+              onEditorModeChange={handleEditorModeChange}
+              onTransformShapes={handleTransformShapes}
+              onMirrorSelection={handleMirrorSelectedShapes}
             onInsertShapeVertex={handleInsertShapeVertex}
             onPlacePoint={handlePlacePoint}
             onPointerChange={handlePointerChange}
@@ -2246,6 +2256,28 @@ function App() {
                       <AlignBottomIcon />
                     </span>
                     <span>Align Bottom</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary-button align-action-button"
+                    onClick={() => handleAlignSelectedShapes(ALIGN_CENTER_X)}
+                    disabled={!canAlignSelection}
+                  >
+                    <span className="align-action-icon" aria-hidden="true">
+                      <AlignCenterXIcon />
+                    </span>
+                    <span>Center X</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary-button align-action-button"
+                    onClick={() => handleAlignSelectedShapes(ALIGN_CENTER_Y)}
+                    disabled={!canAlignSelection}
+                  >
+                    <span className="align-action-icon" aria-hidden="true">
+                      <AlignCenterYIcon />
+                    </span>
+                    <span>Center Y</span>
                   </button>
                 </div>
               </section>
@@ -2569,14 +2601,6 @@ function App() {
                 icon={<MoveToolIcon />}
                 tooltipProps={getToolbarTooltipProps('Move / Edit', 'V')}
                 onClick={() => handleEditorModeChange(EDITOR_MODE_SELECT)}
-              />
-              <ToolButton
-                isActive={isTransformMode}
-                label="Transform"
-                hotkey="B"
-                icon={<TransformToolIcon />}
-                tooltipProps={getToolbarTooltipProps('Transform', 'B')}
-                onClick={() => handleEditorModeChange(EDITOR_MODE_TRANSFORM)}
               />
               <DestroyToolButton
                 brushCells={destroyBrushCells}
@@ -3364,6 +3388,26 @@ function AlignBottomIcon() {
       <path d="M2.5 13h11" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
       <rect x="3.8" y="4" width="2.8" height="6.7" rx="0.8" fill="none" stroke="currentColor" strokeWidth="1.2" />
       <rect x="9.4" y="5.9" width="2.8" height="4.8" rx="0.8" fill="none" stroke="currentColor" strokeWidth="1.2" />
+    </svg>
+  );
+}
+
+function AlignCenterXIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M8 2.5v11" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <rect x="4.2" y="3.8" width="7.6" height="2.8" rx="0.8" fill="none" stroke="currentColor" strokeWidth="1.2" />
+      <rect x="5.2" y="9.4" width="5.6" height="2.8" rx="0.8" fill="none" stroke="currentColor" strokeWidth="1.2" />
+    </svg>
+  );
+}
+
+function AlignCenterYIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M2.5 8h11" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <rect x="3.8" y="4.2" width="2.8" height="7.6" rx="0.8" fill="none" stroke="currentColor" strokeWidth="1.2" />
+      <rect x="9.4" y="5.2" width="2.8" height="5.6" rx="0.8" fill="none" stroke="currentColor" strokeWidth="1.2" />
     </svg>
   );
 }

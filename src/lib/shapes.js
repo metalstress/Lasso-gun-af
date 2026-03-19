@@ -15,6 +15,8 @@ export const ALIGN_LEFT = 'left';
 export const ALIGN_RIGHT = 'right';
 export const ALIGN_TOP = 'top';
 export const ALIGN_BOTTOM = 'bottom';
+export const ALIGN_CENTER_X = 'center-x';
+export const ALIGN_CENTER_Y = 'center-y';
 
 let shapeCounter = 0;
 let groupCounter = 0;
@@ -236,6 +238,10 @@ export function alignShapeToBounds(shape, alignment, bounds) {
   }
 
   const shapeBounds = getShapeBounds(shape);
+  const boundsCenterX = (bounds.minX + bounds.maxX) / 2;
+  const boundsCenterY = (bounds.minY + bounds.maxY) / 2;
+  const shapeCenterX = (shapeBounds.minX + shapeBounds.maxX) / 2;
+  const shapeCenterY = (shapeBounds.minY + shapeBounds.maxY) / 2;
   let delta = null;
 
   if (alignment === ALIGN_LEFT) {
@@ -246,6 +252,10 @@ export function alignShapeToBounds(shape, alignment, bounds) {
     delta = { x: 0, y: bounds.minY - shapeBounds.minY };
   } else if (alignment === ALIGN_BOTTOM) {
     delta = { x: 0, y: bounds.maxY - shapeBounds.maxY };
+  } else if (alignment === ALIGN_CENTER_X) {
+    delta = { x: boundsCenterX - shapeCenterX, y: 0 };
+  } else if (alignment === ALIGN_CENTER_Y) {
+    delta = { x: 0, y: boundsCenterY - shapeCenterY };
   }
 
   if (!delta || (delta.x === 0 && delta.y === 0)) {

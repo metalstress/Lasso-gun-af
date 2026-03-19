@@ -27,6 +27,7 @@ function DrawingCanvas({
   onMoveShape,
   onMoveShapeVertices,
   onDestroyShapes,
+  onEditorModeChange,
   onTransformShapes,
   onMirrorSelection,
   onPlacePoint,
@@ -575,6 +576,13 @@ function DrawingCanvas({
         >
           <button
             type="button"
+            className={`canvas-transform-action ${showTransformBox ? 'is-active' : ''}`.trim()}
+            onClick={() => onEditorModeChange?.(isTransformMode ? 'select' : 'transform')}
+          >
+            Transform
+          </button>
+          <button
+            type="button"
             className="canvas-transform-action"
             onClick={() => onMirrorSelection?.('x')}
           >
@@ -676,6 +684,12 @@ function DrawingCanvas({
     }
 
     onSelectHandleIds([]);
+
+    if (isTransformMode) {
+      onEditorModeChange?.('select');
+      return;
+    }
+
     handleLassoSelectionPointerDown(event, rawPoint);
   }
 
@@ -1083,7 +1097,7 @@ function getTransformOverlayRect(bounds, surfaceSize, viewOffset = { x: 0, y: 0 
 }
 
 function getTransformPopoverStyle(overlay, surfaceSize) {
-  const width = 168;
+  const width = 264;
   const height = 44;
   const margin = 12;
   const maxLeft = Math.max(margin, surfaceSize.width - width - margin);

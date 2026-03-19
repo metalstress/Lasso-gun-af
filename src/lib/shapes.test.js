@@ -1,6 +1,8 @@
 import { DRAW_MODE_CLASSIC, POINT_KIND_A, POINT_KIND_B, addPoint, clear, setDrawMode } from './lasso.js';
 import {
   ALIGN_BOTTOM,
+  ALIGN_CENTER_X,
+  ALIGN_CENTER_Y,
   ALIGN_LEFT,
   ALIGN_RIGHT,
   ALIGN_TOP,
@@ -257,11 +259,27 @@ describe('shape helpers', () => {
       minY: 0.05,
       maxY: 0.9,
     });
+    const centerXAligned = alignShapeToBounds(shape, ALIGN_CENTER_X, {
+      minX: 0.1,
+      maxX: 0.8,
+      minY: 0.05,
+      maxY: 0.9,
+    });
+    const centerYAligned = alignShapeToBounds(shape, ALIGN_CENTER_Y, {
+      minX: 0.1,
+      maxX: 0.8,
+      minY: 0.05,
+      maxY: 0.9,
+    });
 
     expect(leftAligned.polygons[0][0][0].x).toBeCloseTo(0.1);
     expect(rightAligned.polygons[0][0][1].x).toBeCloseTo(0.8);
     expect(topAligned.polygons[0][0][0].y).toBeCloseTo(0.05);
     expect(bottomAligned.polygons[0][0][2].y).toBeCloseTo(0.9);
+    expect(centerXAligned.polygons[0][0][0].x).toBeCloseTo(0.375);
+    expect(centerXAligned.polygons[0][0][1].x).toBeCloseTo(0.525);
+    expect(centerYAligned.polygons[0][0][0].y).toBeCloseTo(0.375);
+    expect(centerYAligned.polygons[0][0][2].y).toBeCloseTo(0.575);
   });
 
   it('scales a shape against a shared selection bounding box', () => {

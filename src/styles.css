@@ -1630,6 +1630,15 @@ input[type="range"] {
   box-shadow: 0 0 14px rgba(192, 255, 104, 0.12);
 }
 
+.canvas-transform-action.is-active {
+  border-color: rgba(192, 255, 104, 0.46);
+  background: rgba(192, 255, 104, 0.12);
+  color: var(--draft-accent);
+  box-shadow:
+    0 0 0 1px rgba(192, 255, 104, 0.12),
+    0 0 16px rgba(192, 255, 104, 0.12);
+}
+
 .mode-dock {
   display: grid;
   grid-template-columns: auto auto;
