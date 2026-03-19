@@ -1,11 +1,13 @@
 function PreferencesOverlay({
   activeTab,
+  appearance,
   customThemeColors,
   dualPointBehavior,
   isOpen,
   onClose,
   onCustomThemeColorChange,
   onDualPointBehaviorChange,
+  onNeonShapesChange,
   onTabChange,
   onThemePresetChange,
   theme,
@@ -78,8 +80,8 @@ function PreferencesOverlay({
                 >
                   <span className="preferences-mode-title">Sequential</span>
                   <span className="card-note">
-                    Default mode. Left click or tap always places the next legal point in order:
-                    Point 1, then Point 2, then Point 1 again.
+                    Simple mode. Just keep clicking with left mouse or tap:
+                    first Point 1, then Point 2, then Point 1 again.
                   </span>
                 </button>
 
@@ -90,8 +92,8 @@ function PreferencesOverlay({
                 >
                   <span className="preferences-mode-title">Abstract</span>
                   <span className="card-note">
-                    Legacy behavior. Left click places Point 1, right click places Point 2, and touch
-                    uses explicit P1 / P2 switching.
+                    Manual mode. Left click places Point 1, right click places Point 2.
+                    On touch, switch between P1 and P2 yourself.
                   </span>
                 </button>
               </div>
@@ -127,6 +129,36 @@ function PreferencesOverlay({
                   label="Custom"
                   onClick={() => onThemePresetChange('custom')}
                 />
+              </div>
+            </section>
+
+            <section className="preferences-card">
+              <div className="section-head">
+                <p className="section-label">Canvas Glow</p>
+              </div>
+
+              <div className="preferences-mode-grid">
+                <button
+                  type="button"
+                  className={`preferences-mode-button ${!appearance.neonShapes ? 'is-active' : ''}`}
+                  onClick={() => onNeonShapesChange(false)}
+                >
+                  <span className="preferences-mode-title">Default</span>
+                  <span className="card-note">
+                    Keep figure strokes clean and flat, without the panel neon bloom.
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  className={`preferences-mode-button ${appearance.neonShapes ? 'is-active' : ''}`}
+                  onClick={() => onNeonShapesChange(true)}
+                >
+                  <span className="preferences-mode-title">Panel Neon</span>
+                  <span className="card-note">
+                    Figures on the canvas get the same green retro glow vibe as the logo in the right header.
+                  </span>
+                </button>
               </div>
             </section>
 
@@ -189,9 +221,9 @@ function PreferencesOverlay({
                   rel="noreferrer"
                   target="_blank"
                 >
-                  <span className="about-link-label">Telegram</span>
+                  <span className="about-link-label">Author</span>
                   <strong>@metalstressed</strong>
-                  <span className="card-note">Main channel</span>
+                  <span className="card-note">creator channel</span>
                 </a>
 
                 <a
@@ -202,7 +234,7 @@ function PreferencesOverlay({
                 >
                   <span className="about-link-label">Festival</span>
                   <strong>@abstfest</strong>
-                  <span className="card-note">ABST festival channel</span>
+                  <span className="card-note">канал Абстрактного Фестиваля</span>
                 </a>
               </div>
             </section>

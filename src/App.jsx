@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import afCatLogo from './assets/af-cat.svg';
 import DrawingCanvas from './components/DrawingCanvas.jsx';
 import ExportOverlay from './components/ExportOverlay.jsx';
@@ -33,9 +33,11 @@ import {
   createHandleId,
   createShapeFromDraft,
   createShapeFromPolygons,
+  deleteShapeVertices,
   duplicateShapes,
   flattenShapes,
   getSceneShapes,
+  getShapeBounds,
   getShapeById,
   insertShapeVertex,
   isShapeEditable,
@@ -69,7 +71,6 @@ const MOBILE_LAYOUT_QUERY = '(max-width: 740px)';
 const DEFAULT_SURFACE_SIZE = { width: 1200, height: 720 };
 const EDITOR_MODE_DRAW = 'draw';
 const EDITOR_MODE_SELECT = 'select';
-const EDITOR_MODE_LASSO_SELECT = 'lasso-select';
 const EDITOR_MODE_EDIT = 'edit';
 const PREFERENCES_TAB_TOOLS = 'tools';
 const PREFERENCES_TAB_UI_THEME = 'ui-theme';
@@ -122,10 +123,13 @@ function App() {
   const [dockFrame, setDockFrame] = useState({ left: 18, width: 0, bottom: 18 });
   const [isMobileLayout, setIsMobileLayout] = useState(false);
   const [mobilePanel, setMobilePanel] = useState(null);
+  const [isHowToBallOpen, setIsHowToBallOpen] = useState(false);
+  const [focusRequest, setFocusRequest] = useState(null);
   const historyRef = useRef({ past: [], future: [] });
   const snapshotRef = useRef(null);
   const gestureSnapshotRef = useRef(null);
   const gestureHasChangesRef = useRef(false);
+  const lastDuplicateDeltaRef = useRef(null);
   const contextMenuRef = useRef(null);
   const shapePresetRef = useRef(null);
   const toolbarTooltipTimerRef = useRef(null);
@@ -315,11 +319,6 @@ function App() {
             hideToolbarTooltip();
             handleEditorModeChange(EDITOR_MODE_SELECT);
             return;
-          case 'KeyL':
-            event.preventDefault();
-            hideToolbarTooltip();
-            handleEditorModeChange(EDITOR_MODE_LASSO_SELECT);
-            return;
           case 'KeyE':
             event.preventDefault();
             hideToolbarTooltip();
@@ -422,6 +421,11 @@ function App() {
           return;
         }
 
+        if (isHowToBallOpen) {
+          setIsHowToBallOpen(false);
+          return;
+        }
+
         if (activeEditorMode === EDITOR_MODE_SELECT && selectedHandleIds.length > 0) {
           setSelectedHandleIds([]);
           return;
@@ -518,17 +522,84 @@ function App() {
     });
   }, [snapToGrid, surfaceSize]);
 
+  const expectedKind = getExpectedKind(drawingState);
+  const isClassicMode = drawingState.mode === DRAW_MODE_CLASSIC;
+  const isSequentialDualPoint = dualPointBehavior === DUAL_POINT_BEHAVIOR_SEQUENTIAL;
+  const isAbstractDualPoint = dualPointBehavior === DUAL_POINT_BEHAVIOR_ABSTRACT;
+  const hasDraftPoints = hasAnyPoints(drawingState);
+  const activeEditorMode = normalizeEditorMode(editorMode);
+  const draftShape = useMemo(() => createShapeFromDraft(drawingState), [drawingState]);
+  const sceneShapes = useMemo(() => getSceneShapes(shapes, draftShape), [draftShape, shapes]);
+  const canExport = sceneShapes.length > 0;
+  const canCommitDraft = Boolean(draftShape);
+  const touchModeMismatch =
+    !isClassicMode &&
+    isAbstractDualPoint &&
+    showTouchControls &&
+    drawingState.touchMode !== expectedKind;
+  const selectedShapes = useMemo(
+    () =>
+      selectedShapeIds
+        .map((shapeId) => getShapeById(shapes, shapeId))
+        .filter(Boolean),
+    [selectedShapeIds, shapes],
+  );
+  const isMoveMode = activeEditorMode === EDITOR_MODE_SELECT;
+  const isSelectionWorkflow = activeEditorMode === EDITOR_MODE_SELECT;
+  const currentShapePresetOption =
+    PRESET_SHAPE_OPTIONS.find((option) => option.value === shapePresetKind) ?? PRESET_SHAPE_OPTIONS[0];
+  const hasClipboardShapes = shapeClipboard.shapes.length > 0;
+  const canCopySelection = selectedShapes.length > 0;
+  const canExportSelection = selectedShapes.length > 0;
+  const canUngroupSelection = selectedShapes.some((shape) => Boolean(shape.group));
+  const canFlattenSelection =
+    selectedShapes.length >= 2 || selectedShapes.some((shape) => Boolean(shape.group));
+  const workflowLabel = getWorkflowLabel(activeEditorMode);
+  const exportButtonLabel =
+    isSelectionWorkflow && canExportSelection ? 'Export Selected' : 'Export';
+  const isDraftActive = activeEditorMode === EDITOR_MODE_DRAW && hasDraftPoints;
+  const isFinishShapeReady = activeEditorMode === EDITOR_MODE_DRAW && canCommitDraft;
+  const editableHandles = useMemo(() => {
+    if (activeEditorMode !== EDITOR_MODE_SELECT || selectedShapes.length !== 1) {
+      return [];
+    }
+
+    const [selectedShape] = selectedShapes;
+
+    if (!isShapeEditable(selectedShape)) {
+      return [];
+    }
+
+    const selectedHandleIdSet = new Set(selectedHandleIds);
+
+    return listEditableHandles(selectedShape).map((handle) => {
+      const id = createHandleId(handle.location);
+
+      return {
+        ...handle,
+        id,
+        isSelected: selectedHandleIdSet.has(id),
+        shapeId: selectedShape.id,
+      };
+    });
+  }, [activeEditorMode, selectedHandleIds, selectedShapes]);
+
+  const selectedHandleLocations = useMemo(
+    () => editableHandles.filter((handle) => handle.isSelected).map((handle) => handle.location),
+    [editableHandles],
+  );
+
   useEffect(() => {
-    snapshotRef.current = createHistorySnapshot({
+    snapshotRef.current = createLiveSnapshot({
       appearance,
+      customUiTheme,
+      dualPointBehavior,
       drawingState,
       editorMode,
-      dualPointBehavior,
       selectedHandleIds,
       selectedShapeIds,
       shapes,
       snapToGrid,
-      customUiTheme,
       theme,
     });
   }, [
@@ -543,56 +614,6 @@ function App() {
     snapToGrid,
     theme,
   ]);
-
-  const expectedKind = getExpectedKind(drawingState);
-  const isClassicMode = drawingState.mode === DRAW_MODE_CLASSIC;
-  const isSequentialDualPoint = dualPointBehavior === DUAL_POINT_BEHAVIOR_SEQUENTIAL;
-  const isAbstractDualPoint = dualPointBehavior === DUAL_POINT_BEHAVIOR_ABSTRACT;
-  const hasDraftPoints = hasAnyPoints(drawingState);
-  const activeEditorMode = normalizeEditorMode(editorMode);
-  const draftShape = createShapeFromDraft(drawingState);
-  const sceneShapes = getSceneShapes(shapes, draftShape);
-  const canExport = sceneShapes.length > 0;
-  const canCommitDraft = Boolean(draftShape);
-  const touchModeMismatch =
-    !isClassicMode &&
-    isAbstractDualPoint &&
-    showTouchControls &&
-    drawingState.touchMode !== expectedKind;
-  const selectedShapes = selectedShapeIds
-    .map((shapeId) => getShapeById(shapes, shapeId))
-    .filter(Boolean);
-  const isMoveMode = activeEditorMode === EDITOR_MODE_SELECT;
-  const isLassoSelectMode = activeEditorMode === EDITOR_MODE_LASSO_SELECT;
-  const isSelectionWorkflow =
-    activeEditorMode === EDITOR_MODE_SELECT ||
-    activeEditorMode === EDITOR_MODE_LASSO_SELECT;
-  const currentShapePresetOption =
-    PRESET_SHAPE_OPTIONS.find((option) => option.value === shapePresetKind) ?? PRESET_SHAPE_OPTIONS[0];
-  const hasClipboardShapes = shapeClipboard.shapes.length > 0;
-  const canCopySelection = selectedShapes.length > 0;
-  const canExportSelection = selectedShapes.length > 0;
-  const canUngroupSelection = selectedShapes.some((shape) => Boolean(shape.group));
-  const canFlattenSelection =
-    selectedShapes.length >= 2 || selectedShapes.some((shape) => Boolean(shape.group));
-  const workflowLabel = getWorkflowLabel(activeEditorMode);
-  const exportButtonLabel =
-    isSelectionWorkflow && canExportSelection ? 'Export Selected' : 'Export';
-  const isDraftActive = activeEditorMode === EDITOR_MODE_DRAW && hasDraftPoints;
-  const isFinishShapeReady = activeEditorMode === EDITOR_MODE_DRAW && canCommitDraft;
-  const editableHandles =
-    activeEditorMode === EDITOR_MODE_SELECT && selectedShapes.length === 1
-      ? selectedShapes.flatMap((shape) =>
-          isShapeEditable(shape)
-            ? listEditableHandles(shape).map((handle) => ({
-                ...handle,
-                id: createHandleId(handle.location),
-                isSelected: selectedHandleIds.includes(createHandleId(handle.location)),
-                shapeId: shape.id,
-              }))
-            : [],
-        )
-      : [];
  
   useEffect(() => {
     if (
@@ -616,23 +637,29 @@ function App() {
 
   const canRunBoolean = selectedShapeIds.length >= 2;
   const canDeleteSelection = selectedShapeIds.length > 0;
+  const canDeleteSelectedHandles = selectedHandleLocations.length > 0;
   const canResetSnapToGrid = hasDraftPoints || shapes.length > 0;
   const uiThemeStyle = getUiThemeStyle(theme, customUiTheme);
-  const howToBallItems = getHowToBallItems({
-    activeEditorMode,
-    dualPointBehavior,
-    isClassicMode,
-    showTouchControls,
-  });
-  const howToBallStatus = getHowToBallStatus({
+  const isMobileDrawMode = isMobileLayout && activeEditorMode === EDITOR_MODE_DRAW;
+  const showMobileTouchToggle =
+    isMobileLayout &&
+    showTouchControls &&
+    isAbstractDualPoint &&
+    !isClassicMode &&
+    activeEditorMode === EDITOR_MODE_DRAW;
+  const canDeleteAnything = canDeleteSelectedHandles || canDeleteSelection;
+  const howToBall = getHowToBallContent({
     activeEditorMode,
     canCommitDraft,
-    classicPointCount: drawingState.classicPoints.length,
+    canEditVertices: editableHandles.length > 0,
+    hasDraftPoints,
+    selectedHandleCount: selectedHandleLocations.length,
+    selectedShapeCount: selectedShapeIds.length,
     dualPointBehavior,
     expectedKind,
     isClassicMode,
-    selectedShapeCount: selectedShapeIds.length,
     showTouchControls,
+    classicPointCount: drawingState.classicPoints.length,
     touchMode: drawingState.touchMode,
     touchModeMismatch,
   });
@@ -737,7 +764,7 @@ function App() {
       return;
     }
 
-    snapshotRef.current = createHistorySnapshot(snapshot);
+    snapshotRef.current = createLiveSnapshot(snapshot);
     setDrawingState((current) => ({
       ...snapshot.drawingState,
       pointer: current.pointer,
@@ -849,6 +876,12 @@ function App() {
     setMobilePanel((current) => (current === panelName ? null : panelName));
   };
 
+  const openMobilePanel = (panelName) => {
+    setViewportContextMenu(CLOSED_VIEWPORT_CONTEXT_MENU);
+    setIsShapePresetMenuOpen(false);
+    setMobilePanel(panelName);
+  };
+
   const handlePlacePoint = (kind, coords) => {
     commitHistoryChange((snapshot) => ({
       ...snapshot,
@@ -887,7 +920,11 @@ function App() {
     commitHistoryChange((snapshot) => ({
       ...snapshot,
       drawingState: setDrawMode(snapshot.drawingState, mode),
+      editorMode: EDITOR_MODE_DRAW,
+      selectedHandleIds: [],
     }));
+    setViewportContextMenu(CLOSED_VIEWPORT_CONTEXT_MENU);
+    setIsShapePresetMenuOpen(false);
   };
 
   const handleEditorModeChange = (mode) => {
@@ -911,10 +948,7 @@ function App() {
 
     setSelectedHandleIds([]);
     setSelectedShapeIds((current) => {
-      if (
-        additiveSelection &&
-        (activeEditorMode === EDITOR_MODE_SELECT || activeEditorMode === EDITOR_MODE_LASSO_SELECT)
-      ) {
+      if (additiveSelection && activeEditorMode === EDITOR_MODE_SELECT) {
         return current.includes(shapeId)
           ? current.filter((currentId) => currentId !== shapeId)
           : [...current, shapeId];
@@ -939,14 +973,21 @@ function App() {
 
   const handleThemeToggle = () => {
     hideToolbarTooltip();
-    setTheme((current) => {
-      if (current === THEME_GARFIELD) {
-        return previousThemeRef.current === THEME_GARFIELD ? THEME_MONO : previousThemeRef.current;
-      }
+    const nextTheme =
+      theme === THEME_GARFIELD
+        ? previousThemeRef.current === THEME_GARFIELD
+          ? THEME_MONO
+          : previousThemeRef.current
+        : THEME_GARFIELD;
 
-      previousThemeRef.current = current;
-      return THEME_GARFIELD;
-    });
+    if (theme !== THEME_GARFIELD) {
+      previousThemeRef.current = theme;
+    }
+
+    commitHistoryChange((snapshot) => ({
+      ...snapshot,
+      theme: nextTheme,
+    }));
   };
 
   const handleSnapToggle = () => {
@@ -955,7 +996,10 @@ function App() {
   };
 
   const handleDualPointBehaviorChange = (nextBehavior) => {
-    setDualPointBehavior(nextBehavior);
+    commitHistoryChange((snapshot) => ({
+      ...snapshot,
+      dualPointBehavior: nextBehavior,
+    }));
   };
 
   const handleThemePresetChange = (nextTheme) => {
@@ -963,15 +1007,31 @@ function App() {
       previousThemeRef.current = nextTheme;
     }
 
-    setTheme(nextTheme);
+    commitHistoryChange((snapshot) => ({
+      ...snapshot,
+      theme: nextTheme,
+    }));
   };
 
   const handleCustomThemeColorChange = (key, value) => {
-    setCustomUiTheme((current) => ({
-      ...current,
-      [key]: value,
+    commitHistoryChange((snapshot) => ({
+      ...snapshot,
+      customUiTheme: {
+        ...(snapshot.customUiTheme ?? DEFAULT_CUSTOM_UI_THEME),
+        [key]: value,
+      },
+      theme: THEME_CUSTOM,
     }));
-    setTheme(THEME_CUSTOM);
+  };
+
+  const handleNeonShapesChange = (nextValue) => {
+    commitHistoryChange((snapshot) => ({
+      ...snapshot,
+      appearance: {
+        ...snapshot.appearance,
+        neonShapes: nextValue,
+      },
+    }));
   };
 
   const handleResetSnapToGrid = () => {
@@ -981,6 +1041,25 @@ function App() {
       drawingState: snapDrawingStateToGrid(snapshot.drawingState, surfaceSize),
       shapes: snapShapesToGrid(snapshot.shapes, surfaceSize),
     }));
+  };
+
+  const openPreferencesPanel = (tab = PREFERENCES_TAB_TOOLS) => {
+    hideToolbarTooltip();
+    setIsExportOpen(false);
+    setIsShapePresetMenuOpen(false);
+    setViewportContextMenu(CLOSED_VIEWPORT_CONTEXT_MENU);
+    setPreferencesTab(tab);
+    setIsPreferencesOpen(true);
+    closeMobilePanel();
+  };
+
+  const openExportPanel = () => {
+    hideToolbarTooltip();
+    setIsPreferencesOpen(false);
+    setIsShapePresetMenuOpen(false);
+    setViewportContextMenu(CLOSED_VIEWPORT_CONTEXT_MENU);
+    setIsExportOpen(true);
+    closeMobilePanel();
   };
 
   const handleShapePresetToggle = () => {
@@ -1064,11 +1143,7 @@ function App() {
       return false;
     }
 
-    const stepPx = GRID_STEP_PX;
-    const delta = {
-      x: stepPx / Math.max(surfaceSize.width, 1),
-      y: stepPx / Math.max(surfaceSize.height, 1),
-    };
+    const delta = getEffectiveDuplicateDelta(surfaceSize, lastDuplicateDeltaRef.current);
 
     commitHistoryChange((snapshot) => {
       const orderedSelection = snapshot.selectedShapeIds
@@ -1086,9 +1161,10 @@ function App() {
         selectedHandleIds: [],
         selectedShapeIds: duplicatedShapes.map((shape) => shape.id),
         editorMode: EDITOR_MODE_SELECT,
-      };
-    });
+        };
+      });
 
+    lastDuplicateDeltaRef.current = cloneHistoryValue(delta);
     setViewportContextMenu(CLOSED_VIEWPORT_CONTEXT_MENU);
     return true;
   };
@@ -1146,6 +1222,40 @@ function App() {
       isOpen: true,
       ...getViewportContextMenuPosition(clientX, clientY),
     });
+  };
+
+  const handleLayerContextMenu = (shapeId, event) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (shapeId && activeEditorMode === EDITOR_MODE_DRAW) {
+      setEditorMode(EDITOR_MODE_SELECT);
+    }
+
+    handleViewportContextMenu({
+      clientX: event.clientX,
+      clientY: event.clientY,
+      hitShapeId: shapeId,
+    });
+  };
+
+  const handleJumpToSelection = () => {
+    if (selectedShapes.length === 0) {
+      return false;
+    }
+
+    const bounds = getShapesBounds(selectedShapes);
+
+    if (!bounds) {
+      return false;
+    }
+
+    setFocusRequest((current) => ({
+      bounds,
+      token: (current?.token ?? 0) + 1,
+    }));
+    setViewportContextMenu(CLOSED_VIEWPORT_CONTEXT_MENU);
+    return true;
   };
 
   const handleInsertShapeVertex = (shapeId, location, point) => {
@@ -1259,7 +1369,106 @@ function App() {
     setSelectedHandleIds(nextSelectedHandleIds);
   };
 
+  const handleRenameShape = (shapeId, nextName) => {
+    const normalizedName = String(nextName ?? '').trim();
+
+    if (!normalizedName) {
+      return false;
+    }
+
+    commitHistoryChange((snapshot) => {
+      const targetShape = getShapeById(snapshot.shapes, shapeId);
+
+      if (!targetShape || targetShape.name === normalizedName) {
+        return snapshot;
+      }
+
+      return {
+        ...snapshot,
+        shapes: snapshot.shapes.map((shape) =>
+          shape.id === shapeId
+            ? {
+                ...shape,
+                name: normalizedName,
+              }
+            : shape,
+        ),
+      };
+    });
+
+    return true;
+  };
+
+  const handleRenameGroup = (shapeId, nextName) => {
+    const normalizedName = String(nextName ?? '').trim();
+
+    if (!normalizedName) {
+      return false;
+    }
+
+    commitHistoryChange((snapshot) => {
+      const targetShape = getShapeById(snapshot.shapes, shapeId);
+
+      if (!targetShape?.group || targetShape.group.name === normalizedName) {
+        return snapshot;
+      }
+
+      return {
+        ...snapshot,
+        shapes: snapshot.shapes.map((shape) =>
+          shape.id === shapeId
+            ? {
+                ...shape,
+                group: {
+                  ...shape.group,
+                  name: normalizedName,
+                },
+              }
+            : shape,
+        ),
+      };
+    });
+
+    return true;
+  };
+
   const handleDeleteSelectedShapes = () => {
+    if (canDeleteSelectedHandles) {
+      commitHistoryChange((snapshot) => {
+        if (snapshot.selectedShapeIds.length !== 1 || snapshot.selectedHandleIds.length === 0) {
+          return snapshot;
+        }
+
+        const shapeId = snapshot.selectedShapeIds[0];
+        const shape = getShapeById(snapshot.shapes, shapeId);
+
+        if (!shape || !isShapeEditable(shape)) {
+          return snapshot;
+        }
+
+        const selectedHandleIdSet = new Set(snapshot.selectedHandleIds);
+        const locations = listEditableHandles(shape)
+          .filter((handle) => selectedHandleIdSet.has(createHandleId(handle.location)))
+          .map((handle) => handle.location);
+
+        if (locations.length === 0) {
+          return snapshot;
+        }
+
+        return {
+          ...snapshot,
+          shapes: snapshot.shapes.map((currentShape) =>
+            currentShape.id === shapeId ? deleteShapeVertices(currentShape, locations) : currentShape,
+          ),
+          selectedHandleIds: [],
+          selectedShapeIds: [shapeId],
+          editorMode: EDITOR_MODE_SELECT,
+        };
+      });
+      setViewportContextMenu(CLOSED_VIEWPORT_CONTEXT_MENU);
+      return true;
+    }
+
     if (selectedShapeIds.length === 0) {
       return false;
     }
@@ -1329,9 +1538,13 @@ function App() {
     );
   };
 
-  const handleMoveShape = (shapeIds, baseShapes, delta) => {
+  const handleMoveShape = (shapeIds, baseShapes, delta, options = {}) => {
     if (delta.x === 0 && delta.y === 0) {
       return;
+    }
+
+    if (options.rememberDuplicateDelta) {
+      lastDuplicateDeltaRef.current = cloneHistoryValue(delta);
     }
 
     gestureHasChangesRef.current = true;
@@ -1439,7 +1652,7 @@ function App() {
     return true;
   };
 
-  const handleExport = ({ format, transparentBackground, scope }) => {
+  const handleExport = ({ format, includeNeonEffects = false, transparentBackground, scope }) => {
     const exporter = format === EXPORT_FORMAT_SVG ? exportSceneAsSvg : exportSceneAsPng;
     const targetShapes = scope === 'selection' ? selectedShapes : sceneShapes;
 
@@ -1456,6 +1669,7 @@ function App() {
       appearance,
       width: surfaceSize.width,
       height: surfaceSize.height,
+      includeNeonEffects,
       transparentBackground,
       fileName: `${modeName}-${scopeSuffix}-${backgroundSuffix}.${format}`,
     });
@@ -1475,6 +1689,9 @@ function App() {
           isMobileLayout={isMobileLayout}
           onCloseMobilePanel={closeMobilePanel}
           onClearSelection={handleClearSelection}
+          onContextMenu={handleLayerContextMenu}
+          onRenameGroup={handleRenameGroup}
+          onRenameShape={handleRenameShape}
           onSelectAllShapes={handleSelectAllShapes}
           onSelectShape={handleLayerSelection}
           onUngroupShape={handleUngroupShape}
@@ -1503,6 +1720,7 @@ function App() {
             onSurfaceChange={setSurfaceSize}
             onUpdateShapeVertex={handleUpdateShapeVertex}
             onViewportContextMenu={handleViewportContextMenu}
+            focusRequest={focusRequest}
             scene={scene}
           />
         </main>
@@ -1555,38 +1773,56 @@ function App() {
               <section className="meta-card meta-card-how2ball">
                 <div className="section-head">
                   <p className="section-label">How2Ball</p>
+                  <button
+                    type="button"
+                    className={`how2ball-toggle ${isHowToBallOpen ? 'is-active' : ''}`}
+                    aria-controls="how2ball-panel"
+                    aria-expanded={isHowToBallOpen}
+                    aria-pressed={isHowToBallOpen}
+                    aria-label={isHowToBallOpen ? 'Disable How2Ball help' : 'Enable How2Ball help'}
+                    onClick={() => setIsHowToBallOpen((current) => !current)}
+                  >
+                    <span className="how2ball-toggle-led" aria-hidden="true" />
+                    <span className="how2ball-toggle-chevron" aria-hidden="true">
+                      <ChevronDownIcon />
+                    </span>
+                  </button>
                 </div>
 
-                <HowToBallGuide items={howToBallItems} />
+                {isHowToBallOpen ? (
+                  <div className="how2ball-panel" id="how2ball-panel">
+                    <HowToBallGuide items={howToBall.items} />
 
-                {showTouchControls &&
-                isAbstractDualPoint &&
-                !isClassicMode &&
-                activeEditorMode === EDITOR_MODE_DRAW ? (
-                  <div className="touch-toggle" aria-label="Touch point type selector">
-                    <button
-                      type="button"
-                      className={drawingState.touchMode === POINT_KIND_A ? 'is-active p1' : 'p1'}
-                      onClick={() => handleTouchModeChange(POINT_KIND_A)}
-                    >
-                      P1
-                    </button>
-                    <button
-                      type="button"
-                      className={drawingState.touchMode === POINT_KIND_B ? 'is-active p2' : 'p2'}
-                      onClick={() => handleTouchModeChange(POINT_KIND_B)}
-                    >
-                      P2
-                    </button>
+                    {showTouchControls &&
+                    isAbstractDualPoint &&
+                    !isClassicMode &&
+                    activeEditorMode === EDITOR_MODE_DRAW ? (
+                      <div className="touch-toggle" aria-label="Touch point type selector">
+                        <button
+                          type="button"
+                          className={drawingState.touchMode === POINT_KIND_A ? 'is-active p1' : 'p1'}
+                          onClick={() => handleTouchModeChange(POINT_KIND_A)}
+                        >
+                          P1
+                        </button>
+                        <button
+                          type="button"
+                          className={drawingState.touchMode === POINT_KIND_B ? 'is-active p2' : 'p2'}
+                          onClick={() => handleTouchModeChange(POINT_KIND_B)}
+                        >
+                          P2
+                        </button>
+                      </div>
+                    ) : null}
+
+                    <div className={`hint-status ${howToBall.isWarning ? 'warning' : ''}`}>
+                      <span className="hint-status-label">Now</span>
+                      <p className={`touch-status ${howToBall.isWarning ? 'warning' : ''}`}>
+                        {howToBall.status}
+                      </p>
+                    </div>
                   </div>
                 ) : null}
-
-                <div className={`hint-status ${touchModeMismatch ? 'warning' : ''}`}>
-                  <span className="hint-status-label">Now</span>
-                  <p className={`touch-status ${touchModeMismatch ? 'warning' : ''}`}>
-                    {howToBallStatus}
-                  </p>
-                </div>
               </section>
 
               <section className="meta-card meta-card-scene-actions">
@@ -1827,231 +2063,408 @@ function App() {
         />
       ) : null}
 
-      <section className="mode-dock viewport-dock" style={dockStyle}>
-        <div className="dock-controls dock-toolbar" ref={dockToolbarRef}>
-          <div className="tool-cluster">
-            <ToolButton
-              isActive={activeEditorMode === EDITOR_MODE_DRAW}
-              label="Draw"
-              hotkey="D"
-              icon={<DrawToolIcon />}
-              tooltipProps={getToolbarTooltipProps('Draw', 'D')}
-              onClick={() => handleEditorModeChange(EDITOR_MODE_DRAW)}
-            />
-          </div>
-
-          <div className="tool-cluster tool-cluster-wide">
-            <ShapePresetDropdown
-              currentShape={currentShapePresetOption.value}
-              getTooltipProps={getToolbarTooltipProps}
-              isOpen={isShapePresetMenuOpen}
-              menuRef={shapePresetRef}
-              polygonSides={polygonSides}
-              onInsertShape={handleInsertPresetShape}
-              onPolygonSidesChange={handlePolygonSidesChange}
-              onToggle={handleShapePresetToggle}
-            />
-
-            <div className="tool-separator" />
-
-            <ToolButton
-              className="mobile-panel-tool"
-              isActive={mobilePanel === 'layers'}
-              label="Layers"
-              hotkey=""
-              icon={<LayersPanelIcon />}
-              tooltipProps={getToolbarTooltipProps('Layers', '')}
-              onClick={() => toggleMobilePanel('layers')}
-            />
-            <ToolButton
-              className="mobile-panel-tool"
-              isActive={mobilePanel === 'controls'}
-              label="Controls"
-              hotkey=""
-              icon={<ControlsPanelIcon />}
-              tooltipProps={getToolbarTooltipProps('Controls', '')}
-              onClick={() => toggleMobilePanel('controls')}
-            />
-            <ToolButton
-              isActive={isMoveMode}
-              label="Move / Edit"
-              hotkey="V"
-              icon={<MoveToolIcon />}
-              tooltipProps={getToolbarTooltipProps('Move / Edit', 'V')}
-              onClick={() => handleEditorModeChange(EDITOR_MODE_SELECT)}
-            />
-            <ToolButton
-              isActive={isLassoSelectMode}
-              label="Lasso Select"
-              hotkey="L"
-              icon={<LassoToolIcon />}
-              tooltipProps={getToolbarTooltipProps('Lasso Select', 'L')}
-              onClick={() => handleEditorModeChange(EDITOR_MODE_LASSO_SELECT)}
-            />
-          </div>
-
-          <div className="tool-cluster tool-cluster-wide">
-            <div className="tool-chip-group" aria-label="Draw mode selector">
+      {isMobileLayout ? (
+        <>
+          <section
+            className={`mobile-utility-sheet ${mobilePanel === 'menu' ? 'is-open' : ''}`}
+            aria-label="Mobile menu"
+          >
+            <div className="mobile-sheet-head">
+              <p className="section-label">Menu</p>
               <button
                 type="button"
-                className={drawingState.mode === DRAW_MODE_DUAL ? 'is-active' : ''}
-                aria-label="Dual-Point (1)"
-                onClick={() => handleDrawModeChange(DRAW_MODE_DUAL)}
-                {...getToolbarTooltipProps('Dual-Point', '1')}
+                className="close-button mobile-sheet-close"
+                onClick={closeMobilePanel}
               >
-                <span className="tool-button-icon" aria-hidden="true">
-                  <DualPointModeIcon />
-                </span>
-              </button>
-              <button
-                type="button"
-                className={`classic-toggle ${drawingState.mode === DRAW_MODE_CLASSIC ? 'is-active' : ''}`}
-                aria-label="Classic Lasso (2)"
-                onClick={() => handleDrawModeChange(DRAW_MODE_CLASSIC)}
-                {...getToolbarTooltipProps('Classic Lasso', '2')}
-              >
-                <span className="tool-button-icon" aria-hidden="true">
-                  <ClassicLassoModeIcon />
-                </span>
+                Close
               </button>
             </div>
 
-            <button
-              type="button"
-              className={`tool-toggle-button ${snapToGrid ? 'is-active' : ''}`}
-              aria-label="Snap2Grid (G)"
-              onClick={handleSnapToggle}
-              {...getToolbarTooltipProps('Snap2Grid', 'G')}
-            >
-              <span className="tool-button-icon" aria-hidden="true">
-                <SnapGridIcon />
-              </span>
-            </button>
-            <ToolButton
-              disabled={!canResetSnapToGrid}
-              label="Reset Snap2Grid"
-              hotkey=""
-              icon={<ResetGridIcon />}
-              tooltipProps={getToolbarTooltipProps('Reset Snap2Grid', '')}
-              onClick={handleResetSnapToGrid}
-            />
-            <ToolButton
-              className="preferences-tool"
-              label="Preferences"
-              hotkey="P"
-              icon={<PreferencesIcon />}
-              tooltipProps={getToolbarTooltipProps('Preferences', 'P')}
-              onClick={() => {
-                hideToolbarTooltip();
-                setIsExportOpen(false);
-                setIsShapePresetMenuOpen(false);
-                setPreferencesTab(PREFERENCES_TAB_TOOLS);
-                setIsPreferencesOpen(true);
-              }}
-            />
-          </div>
-
-          <div className="mobile-scene-actions" aria-label="Scene actions">
-            {showTouchControls &&
-            isAbstractDualPoint &&
-            !isClassicMode &&
-            activeEditorMode === EDITOR_MODE_DRAW ? (
-              <div className="touch-toggle mobile-touch-toggle" aria-label="Touch point type selector">
+            <div className="mobile-utility-grid">
+              <button type="button" className="secondary-button" onClick={() => openMobilePanel('layers')}>
+                Layers
+              </button>
+              <button type="button" className="secondary-button" onClick={() => openMobilePanel('controls')}>
+                Controls
+              </button>
+              <button type="button" className="secondary-button" disabled={!canExport} onClick={openExportPanel}>
+                {exportButtonLabel}
+              </button>
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => openPreferencesPanel(PREFERENCES_TAB_TOOLS)}
+              >
+                Preferences
+              </button>
+              <button type="button" className="secondary-button" onClick={handleSnapToggle}>
+                Snap2Grid: {snapToGrid ? 'On' : 'Off'}
+              </button>
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={!canResetSnapToGrid}
+                onClick={handleResetSnapToGrid}
+              >
+                Reset Snap2Grid
+              </button>
+              <button
+                type="button"
+                className={`secondary-button ${isHowToBallOpen ? 'is-active' : ''}`}
+                onClick={() => setIsHowToBallOpen((current) => !current)}
+              >
+                How2Ball: {isHowToBallOpen ? 'On' : 'Off'}
+              </button>
+              <button type="button" className="secondary-button" onClick={handleThemeToggle}>
+                {theme === THEME_GARFIELD ? 'Restore Theme' : 'Garf Theme'}
+              </button>
+              {hasDraftPoints ? (
                 <button
                   type="button"
-                  className={drawingState.touchMode === POINT_KIND_A ? 'is-active p1' : 'p1'}
-                  onClick={() => handleTouchModeChange(POINT_KIND_A)}
+                  className="secondary-button"
+                  onClick={() =>
+                    commitHistoryChange((snapshot) => ({
+                      ...snapshot,
+                      drawingState: clear(snapshot.drawingState),
+                    }))
+                  }
                 >
-                  P1
+                  Clear Draft
+                </button>
+              ) : null}
+              {canDeleteAnything ? (
+                <button
+                  type="button"
+                  className="secondary-button is-danger"
+                  onClick={handleDeleteSelectedShapes}
+                >
+                  Delete Selected
+                </button>
+              ) : null}
+            </div>
+          </section>
+
+          <section className="mode-dock viewport-dock mobile-viewport-dock" style={dockStyle}>
+            <div className="mobile-dock-shell" ref={dockToolbarRef}>
+              {showMobileTouchToggle ? (
+                <div className="touch-toggle mobile-touch-toggle-compact" aria-label="Touch point type selector">
+                  <button
+                    type="button"
+                    className={drawingState.touchMode === POINT_KIND_A ? 'is-active p1' : 'p1'}
+                    onClick={() => handleTouchModeChange(POINT_KIND_A)}
+                  >
+                    P1
+                  </button>
+                  <button
+                    type="button"
+                    className={drawingState.touchMode === POINT_KIND_B ? 'is-active p2' : 'p2'}
+                    onClick={() => handleTouchModeChange(POINT_KIND_B)}
+                  >
+                    P2
+                  </button>
+                </div>
+              ) : null}
+
+              <div className="mobile-quick-toolbar">
+                <ToolButton
+                  className="mobile-quick-tool"
+                  isActive={isMoveMode}
+                  label="Move / Edit"
+                  hotkey="V"
+                  icon={<MoveToolIcon />}
+                  tooltipProps={getToolbarTooltipProps('Move / Edit', 'V')}
+                  onClick={() => handleEditorModeChange(EDITOR_MODE_SELECT)}
+                />
+                <ToolButton
+                  className="mobile-quick-tool"
+                  isActive={activeEditorMode === EDITOR_MODE_DRAW}
+                  label="Draw"
+                  hotkey="D"
+                  icon={<DrawToolIcon />}
+                  tooltipProps={getToolbarTooltipProps('Draw', 'D')}
+                  onClick={() => handleEditorModeChange(EDITOR_MODE_DRAW)}
+                />
+                {isMobileDrawMode ? (
+                  <ShapePresetDropdown
+                    className="mobile-quick-shape"
+                    currentShape={currentShapePresetOption.value}
+                    getTooltipProps={getToolbarTooltipProps}
+                    isOpen={isShapePresetMenuOpen}
+                    menuRef={shapePresetRef}
+                    polygonSides={polygonSides}
+                    onInsertShape={handleInsertPresetShape}
+                    onPolygonSidesChange={handlePolygonSidesChange}
+                    onToggle={handleShapePresetToggle}
+                  />
+                ) : null}
+                {isFinishShapeReady ? (
+                  <DockActionButton
+                    className="mobile-quick-action mobile-scene-action-finish is-ready"
+                    disabled={!canCommitDraft}
+                    icon={<FinishFlagIcon />}
+                    label="Finish Shape"
+                    onClick={handleCommitDraftShape}
+                    tooltipProps={getToolbarTooltipProps('Finish Shape', '')}
+                  />
+                ) : null}
+                {!isFinishShapeReady && isMobileDrawMode && hasDraftPoints ? (
+                  <DockActionButton
+                    className="mobile-quick-action"
+                    disabled={false}
+                    icon={<UndoActionIcon />}
+                    label="Undo Draft"
+                    onClick={() =>
+                      commitHistoryChange((snapshot) => ({
+                        ...snapshot,
+                        drawingState: undo(snapshot.drawingState),
+                      }))
+                    }
+                    tooltipProps={getToolbarTooltipProps('Undo Draft', '')}
+                  />
+                ) : null}
+                {!isMobileDrawMode && canDeleteAnything ? (
+                  <DockActionButton
+                    className="mobile-quick-action is-danger"
+                    disabled={false}
+                    icon={<DeleteSelectedIcon />}
+                    label="Delete Selected"
+                    onClick={handleDeleteSelectedShapes}
+                    tooltipProps={getToolbarTooltipProps('Delete Selected', '')}
+                  />
+                ) : null}
+                <ToolButton
+                  className="mobile-quick-tool mobile-menu-button"
+                  isActive={mobilePanel === 'menu'}
+                  label="Menu"
+                  hotkey=""
+                  icon={<MenuIcon />}
+                  tooltipProps={getToolbarTooltipProps('Menu', '')}
+                  onClick={() => toggleMobilePanel('menu')}
+                />
+              </div>
+            </div>
+          </section>
+        </>
+      ) : (
+        <section className="mode-dock viewport-dock" style={dockStyle}>
+          <div className="dock-controls dock-toolbar" ref={dockToolbarRef}>
+            <div className="tool-cluster tool-cluster-draw">
+              <ToolButton
+                isActive={isMoveMode}
+                label="Move / Edit"
+                hotkey="V"
+                icon={<MoveToolIcon />}
+                tooltipProps={getToolbarTooltipProps('Move / Edit', 'V')}
+                onClick={() => handleEditorModeChange(EDITOR_MODE_SELECT)}
+              />
+              <ToolButton
+                isActive={activeEditorMode === EDITOR_MODE_DRAW}
+                label="Draw"
+                hotkey="D"
+                icon={<DrawToolIcon />}
+                tooltipProps={getToolbarTooltipProps('Draw', 'D')}
+                onClick={() => handleEditorModeChange(EDITOR_MODE_DRAW)}
+              />
+              <ShapePresetDropdown
+                currentShape={currentShapePresetOption.value}
+                getTooltipProps={getToolbarTooltipProps}
+                isOpen={isShapePresetMenuOpen}
+                menuRef={shapePresetRef}
+                polygonSides={polygonSides}
+                onInsertShape={handleInsertPresetShape}
+                onPolygonSidesChange={handlePolygonSidesChange}
+                onToggle={handleShapePresetToggle}
+              />
+            </div>
+
+            <div className="tool-separator" />
+
+            <div className="tool-cluster tool-cluster-mode">
+              <div className="tool-chip-group" aria-label="Draw mode selector">
+                <button
+                  type="button"
+                  className={drawingState.mode === DRAW_MODE_DUAL ? 'is-active' : ''}
+                  aria-label="Dual-Point (1)"
+                  onClick={() => handleDrawModeChange(DRAW_MODE_DUAL)}
+                  {...getToolbarTooltipProps('Dual-Point', '1')}
+                >
+                  <span className="tool-button-icon" aria-hidden="true">
+                    <DualPointModeIcon />
+                  </span>
                 </button>
                 <button
                   type="button"
-                  className={drawingState.touchMode === POINT_KIND_B ? 'is-active p2' : 'p2'}
-                  onClick={() => handleTouchModeChange(POINT_KIND_B)}
+                  className={`classic-toggle ${drawingState.mode === DRAW_MODE_CLASSIC ? 'is-active' : ''}`}
+                  aria-label="Classic Lasso (2)"
+                  onClick={() => handleDrawModeChange(DRAW_MODE_CLASSIC)}
+                  {...getToolbarTooltipProps('Classic Lasso', '2')}
                 >
-                  P2
+                  <span className="tool-button-icon" aria-hidden="true">
+                    <ClassicLassoModeIcon />
+                  </span>
                 </button>
               </div>
-            ) : null}
-            <DockActionButton
-              className={`mobile-scene-action-finish ${isFinishShapeReady ? 'is-ready' : ''}`}
-              disabled={!canCommitDraft}
-              icon={<FinishFlagIcon />}
-              label="Finish Shape"
-              onClick={handleCommitDraftShape}
-              tooltipProps={getToolbarTooltipProps('Finish Shape', '')}
-            />
-            <DockActionButton
-              disabled={activeEditorMode !== EDITOR_MODE_DRAW || !hasDraftPoints}
-              icon={<UndoActionIcon />}
-              label="Undo Draft"
-              onClick={() =>
-                commitHistoryChange((snapshot) => ({
-                  ...snapshot,
-                  drawingState: undo(snapshot.drawingState),
-                }))
-              }
-              tooltipProps={getToolbarTooltipProps('Undo Draft', '')}
-            />
-            <DockActionButton
-              disabled={!hasDraftPoints}
-              icon={<TrashActionIcon />}
-              label="Clear Draft"
-              onClick={() =>
-                commitHistoryChange((snapshot) => ({
-                  ...snapshot,
-                  drawingState: clear(snapshot.drawingState),
-                }))
-              }
-              tooltipProps={getToolbarTooltipProps('Clear Draft', '')}
-            />
-            <DockActionButton
-              className="is-danger"
-              disabled={!canDeleteSelection}
-              icon={<DeleteSelectedIcon />}
-              label="Delete Selected"
-              onClick={handleDeleteSelectedShapes}
-              tooltipProps={getToolbarTooltipProps('Delete Selected', '')}
-            />
-          </div>
-        </div>
+            </div>
 
-        <button
-          type="button"
-          className={`mascot-shell ${theme === THEME_GARFIELD ? 'is-garfield' : ''}`}
-          aria-label={
-            theme === THEME_GARFIELD
-              ? 'Restore Previous Theme (T)'
-              : 'Garfield Theme (T)'
-          }
-          aria-pressed={theme === THEME_GARFIELD}
-          onClick={handleThemeToggle}
-          {...getToolbarTooltipProps(
-            theme === THEME_GARFIELD ? 'Restore Previous Theme' : 'Garfield Theme',
-            'T',
-          )}
-        >
-          <img className="cat-mascot" src={afCatLogo} alt="" />
-        </button>
-      </section>
+            <div className="tool-separator" />
+
+            <div className="tool-cluster tool-cluster-grid">
+              <button
+                type="button"
+                className={`tool-toggle-button ${snapToGrid ? 'is-active' : ''}`}
+                aria-label="Snap2Grid (G)"
+                onClick={handleSnapToggle}
+                {...getToolbarTooltipProps('Snap2Grid', 'G')}
+              >
+                <span className="tool-button-icon" aria-hidden="true">
+                  <SnapGridIcon />
+                </span>
+              </button>
+              <ToolButton
+                disabled={!canResetSnapToGrid}
+                label="Reset Snap2Grid"
+                hotkey=""
+                icon={<ResetGridIcon />}
+                tooltipProps={getToolbarTooltipProps('Reset Snap2Grid', '')}
+                onClick={handleResetSnapToGrid}
+              />
+            </div>
+
+            <div className="tool-separator" />
+
+            <div className="tool-cluster tool-cluster-system">
+              <ToolButton
+                className="mobile-panel-tool"
+                isActive={mobilePanel === 'layers'}
+                label="Layers"
+                hotkey=""
+                icon={<LayersPanelIcon />}
+                tooltipProps={getToolbarTooltipProps('Layers', '')}
+                onClick={() => toggleMobilePanel('layers')}
+              />
+              <ToolButton
+                className="mobile-panel-tool"
+                isActive={mobilePanel === 'controls'}
+                label="Controls"
+                hotkey=""
+                icon={<ControlsPanelIcon />}
+                tooltipProps={getToolbarTooltipProps('Controls', '')}
+                onClick={() => toggleMobilePanel('controls')}
+              />
+              <ToolButton
+                className="preferences-tool"
+                label="Preferences"
+                hotkey="P"
+                icon={<PreferencesIcon />}
+                tooltipProps={getToolbarTooltipProps('Preferences', 'P')}
+                onClick={() => openPreferencesPanel(PREFERENCES_TAB_TOOLS)}
+              />
+            </div>
+
+            <div className="mobile-scene-actions" aria-label="Scene actions">
+              {showTouchControls &&
+              isAbstractDualPoint &&
+              !isClassicMode &&
+              activeEditorMode === EDITOR_MODE_DRAW ? (
+                <div className="touch-toggle mobile-touch-toggle" aria-label="Touch point type selector">
+                  <button
+                    type="button"
+                    className={drawingState.touchMode === POINT_KIND_A ? 'is-active p1' : 'p1'}
+                    onClick={() => handleTouchModeChange(POINT_KIND_A)}
+                  >
+                    P1
+                  </button>
+                  <button
+                    type="button"
+                    className={drawingState.touchMode === POINT_KIND_B ? 'is-active p2' : 'p2'}
+                    onClick={() => handleTouchModeChange(POINT_KIND_B)}
+                  >
+                    P2
+                  </button>
+                </div>
+              ) : null}
+              <DockActionButton
+                className={`mobile-scene-action-finish ${isFinishShapeReady ? 'is-ready' : ''}`}
+                disabled={!canCommitDraft}
+                icon={<FinishFlagIcon />}
+                label="Finish Shape"
+                onClick={handleCommitDraftShape}
+                tooltipProps={getToolbarTooltipProps('Finish Shape', '')}
+              />
+              <DockActionButton
+                disabled={activeEditorMode !== EDITOR_MODE_DRAW || !hasDraftPoints}
+                icon={<UndoActionIcon />}
+                label="Undo Draft"
+                onClick={() =>
+                  commitHistoryChange((snapshot) => ({
+                    ...snapshot,
+                    drawingState: undo(snapshot.drawingState),
+                  }))
+                }
+                tooltipProps={getToolbarTooltipProps('Undo Draft', '')}
+              />
+              <DockActionButton
+                disabled={!hasDraftPoints}
+                icon={<TrashActionIcon />}
+                label="Clear Draft"
+                onClick={() =>
+                  commitHistoryChange((snapshot) => ({
+                    ...snapshot,
+                    drawingState: clear(snapshot.drawingState),
+                  }))
+                }
+                tooltipProps={getToolbarTooltipProps('Clear Draft', '')}
+              />
+              <DockActionButton
+                className="is-danger"
+                disabled={!canDeleteSelection}
+                icon={<DeleteSelectedIcon />}
+                label="Delete Selected"
+                onClick={handleDeleteSelectedShapes}
+                tooltipProps={getToolbarTooltipProps('Delete Selected', '')}
+              />
+            </div>
+          </div>
+
+          <button
+            type="button"
+            className={`mascot-shell ${theme === THEME_GARFIELD ? 'is-garfield' : ''}`}
+            aria-label={
+              theme === THEME_GARFIELD
+                ? 'Restore Previous Theme (T)'
+                : 'Garfield Theme (T)'
+            }
+            aria-pressed={theme === THEME_GARFIELD}
+            onClick={handleThemeToggle}
+            {...getToolbarTooltipProps(
+              theme === THEME_GARFIELD ? 'Restore Previous Theme' : 'Garfield Theme',
+              'T',
+            )}
+          >
+            <img className="cat-mascot" src={afCatLogo} alt="" />
+          </button>
+        </section>
+      )}
 
       <ToolbarTooltip {...toolbarTooltip} />
 
-      <ViewportContextMenu
-        canCopy={canCopySelection}
-        canDelete={canDeleteSelection}
-        canPaste={hasClipboardShapes}
-        canUngroup={canUngroupSelection}
-        isOpen={viewportContextMenu.isOpen}
-        menuRef={contextMenuRef}
-        onCopy={handleCopySelectedShapes}
-        onCut={handleCutSelectedShapes}
-        onDelete={handleDeleteSelectedShapes}
-        onPaste={handlePasteShapes}
-        onUngroup={handleUngroupSelectedShapes}
-        x={viewportContextMenu.x}
-        y={viewportContextMenu.y}
-      />
+        <ViewportContextMenu
+          canCopy={canCopySelection}
+          canDelete={canDeleteSelection}
+          canJump={selectedShapes.length > 0}
+          canPaste={hasClipboardShapes}
+          canUngroup={canUngroupSelection}
+          isOpen={viewportContextMenu.isOpen}
+          menuRef={contextMenuRef}
+          onCopy={handleCopySelectedShapes}
+          onCut={handleCutSelectedShapes}
+          onDelete={handleDeleteSelectedShapes}
+          onJump={handleJumpToSelection}
+          onPaste={handlePasteShapes}
+          onUngroup={handleUngroupSelectedShapes}
+          x={viewportContextMenu.x}
+          y={viewportContextMenu.y}
+        />
 
       <ExportOverlay
         appearance={appearance}
@@ -2066,12 +2479,14 @@ function App() {
       />
       <PreferencesOverlay
         activeTab={preferencesTab}
+        appearance={appearance}
         customThemeColors={customUiTheme}
         dualPointBehavior={dualPointBehavior}
         isOpen={isPreferencesOpen}
         onClose={() => setIsPreferencesOpen(false)}
         onCustomThemeColorChange={handleCustomThemeColorChange}
         onDualPointBehaviorChange={handleDualPointBehaviorChange}
+        onNeonShapesChange={handleNeonShapesChange}
         onTabChange={setPreferencesTab}
         onThemePresetChange={handleThemePresetChange}
         theme={theme}
@@ -2163,6 +2578,7 @@ function DockActionButton({ className = '', disabled = false, icon, label, onCli
 }
 
 function ShapePresetDropdown({
+  className = '',
   currentShape,
   getTooltipProps,
   isOpen,
@@ -2173,7 +2589,7 @@ function ShapePresetDropdown({
   onToggle,
 }) {
   return (
-    <div className="shape-preset-shell" ref={menuRef}>
+    <div className={`shape-preset-shell ${className}`.trim()} ref={menuRef}>
       <button
         type="button"
         className={`shape-preset-trigger ${isOpen ? 'is-open' : ''}`}
@@ -2280,6 +2696,7 @@ function ToolbarTooltip({ hotkey, isOpen, label, x, y }) {
 function ViewportContextMenu({
   canCopy,
   canDelete,
+  canJump,
   canPaste,
   canUngroup,
   isOpen,
@@ -2287,6 +2704,7 @@ function ViewportContextMenu({
   onCopy,
   onCut,
   onDelete,
+  onJump,
   onPaste,
   onUngroup,
   x,
@@ -2306,6 +2724,7 @@ function ViewportContextMenu({
       <ContextMenuItem disabled={!canCopy} hint="Ctrl/Cmd+C" label="Copy" onClick={onCopy} />
       <ContextMenuItem disabled={!canPaste} hint="Ctrl/Cmd+V" label="Paste" onClick={onPaste} />
       <ContextMenuItem disabled={!canCopy} hint="Ctrl/Cmd+X" label="Cut" onClick={onCut} />
+      <ContextMenuItem disabled={!canJump} hint="" label="Jump2" onClick={onJump} />
       <ContextMenuItem disabled={!canUngroup} hint="Ctrl/Cmd+Shift+G" label="Ungroup" onClick={onUngroup} />
       <ContextMenuItem disabled={!canDelete} hint="Delete" label="Delete" onClick={onDelete} />
     </div>
@@ -2333,8 +2752,11 @@ function ContextMenuItem({ disabled = false, hint, label, onClick }) {
 
 function MoveToolIcon() {
   return (
-    <svg viewBox="0 0 16 16" aria-hidden="true">
-      <path d="M3 1.5v10.8l2.9-2 1.7 3.2 1.6-.8-1.7-3.2 3.4-.2L3 1.5Z" fill="currentColor" />
+    <svg viewBox="0 0 20 20" aria-hidden="true">
+      <path
+        d="M4.15 2.2v13.1l3.72-2.2 2.27 4.7 2.2-1.04-2.22-4.58 5.33-.46L4.15 2.2Z"
+        fill="currentColor"
+      />
     </svg>
   );
 }
@@ -2368,22 +2790,12 @@ function ControlsPanelIcon() {
   );
 }
 
-function LassoToolIcon() {
+function MenuIcon() {
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true">
-      <path
-        d="M11.8 11.3c1.7-.8 2.7-2 2.7-3.4 0-2.4-2.7-4.3-6.1-4.3S2.3 5.5 2.3 7.9c0 1.8 1.4 3.2 3.5 3.9"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-      />
-      <path
-        d="M5.9 11.7c0 .8-.6 1.4-1.4 1.4S3.1 12.5 3.1 11.7s.6-1.4 1.4-1.4.9.3 1.1.7"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-      />
+      <path d="M3 4.25h10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <path d="M3 8h10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <path d="M3 11.75h10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
     </svg>
   );
 }
@@ -2635,128 +3047,193 @@ function getWorkflowLabel(editorMode) {
     return 'Move';
   }
 
-  if (mode === EDITOR_MODE_LASSO_SELECT) {
-    return 'Lasso Select';
-  }
-
   return 'Draw';
 }
 
-function getHowToBallItems({ activeEditorMode, dualPointBehavior, isClassicMode, showTouchControls }) {
-  if (activeEditorMode === EDITOR_MODE_LASSO_SELECT) {
-    return [
-      { id: 'lasso-drag', keys: ['Drag'], label: 'lasso-select shapes' },
-      { id: 'lasso-add', keys: ['Ctrl/Cmd', 'Shift'], label: 'add to the current selection' },
-      { id: 'lasso-wheel', keys: ['Wheel'], label: 'zoom the viewport' },
-      { id: 'lasso-pan', keys: ['Space', 'LMB'], label: 'move around canvas' },
-    ];
-  }
-
-  if (activeEditorMode === EDITOR_MODE_SELECT) {
-    return [
-      { id: 'move-click', keys: ['Click'], label: 'pick a shape or contour' },
-      { id: 'move-drag', keys: ['Drag'], label: 'move shape, point, or + insert' },
-      { id: 'move-alt-drag', keys: ['Alt', 'Drag'], label: 'duplicate while dragging' },
-      { id: 'move-duplicate', keys: ['Ctrl/Cmd', 'D'], label: 'duplicate selection' },
-      { id: 'move-arrows', keys: ['Arrows'], label: 'nudge selected shapes by 1 grid cell' },
-      { id: 'move-shift-arrows', keys: ['Shift', 'Arrows'], label: 'nudge by 4 grid cells' },
-      { id: 'move-wheel', keys: ['Wheel'], label: 'zoom the viewport' },
-      { id: 'move-pan', keys: ['Space', 'LMB'], label: 'move around canvas' },
-      { id: 'move-copy', keys: ['Ctrl/Cmd', 'C/V/X'], label: 'copy, paste, or cut selection' },
-    ];
-  }
-
-  if (isClassicMode) {
-    return [
-      { id: 'classic-place', keys: ['LMB'], label: 'drop the next vertex' },
-      { id: 'classic-wheel', keys: ['Wheel'], label: 'zoom the viewport' },
-      { id: 'classic-pan', keys: ['Space', 'LMB'], label: 'move around canvas' },
-      { id: 'classic-clear', keys: ['Esc'], label: 'clear the draft' },
-      { id: 'classic-undo', keys: ['Ctrl/Cmd', 'Z'], label: 'undo, add Shift for redo' },
-    ];
-  }
-
-  if (dualPointBehavior === DUAL_POINT_BEHAVIOR_SEQUENTIAL) {
-    return [
-      { id: 'dual-seq-place', keys: ['LMB'], label: 'drop the next legal point in sequence' },
-      { id: 'dual-seq-wheel', keys: ['Wheel'], label: 'zoom the viewport' },
-      { id: 'dual-seq-pan', keys: ['Space', 'LMB'], label: 'move around canvas' },
-      { id: 'dual-seq-undo', keys: ['Ctrl/Cmd', 'Z'], label: 'undo, add Shift for redo' },
-    ];
-  }
-
-  if (showTouchControls) {
-    return [
-      { id: 'dual-touch-mode', keys: ['P1', 'P2'], label: 'switch the active point lane' },
-      { id: 'dual-touch-place', keys: ['Tap'], label: 'drop the active point' },
-      { id: 'dual-touch-finish', keys: ['Finish'], label: 'commit the closed draft' },
-    ];
-  }
-
-  return [
-    { id: 'dual-p1', keys: ['LMB'], label: 'place Point 1' },
-    { id: 'dual-p2', keys: ['RMB'], label: 'place Point 2' },
-    { id: 'dual-wheel', keys: ['Wheel'], label: 'zoom the viewport' },
-    { id: 'dual-pan', keys: ['Space', 'LMB'], label: 'move around canvas' },
-    { id: 'dual-undo', keys: ['Ctrl/Cmd', 'Z'], label: 'undo, add Shift for redo' },
-  ];
-}
-
-function getHowToBallStatus({
+function getHowToBallContent({
   activeEditorMode,
   canCommitDraft,
+  canEditVertices,
   classicPointCount,
   dualPointBehavior,
   expectedKind,
+  hasDraftPoints,
   isClassicMode,
+  selectedHandleCount,
   selectedShapeCount,
   showTouchControls,
   touchMode,
   touchModeMismatch,
 }) {
-  if (activeEditorMode === EDITOR_MODE_LASSO_SELECT) {
-    if (selectedShapeCount > 0) {
-      return `${selectedShapeCount} selected. Shape Creator and Export can target that exact set.`;
-    }
-
-    return 'Quick click still grabs the topmost shape under the cursor.';
-  }
-
   if (activeEditorMode === EDITOR_MODE_SELECT) {
-    if (selectedShapeCount > 0) {
-      return `${selectedShapeCount} selected. Drag the body to move it, or drag points on one simple contour.`;
+    if (selectedHandleCount > 0) {
+      return {
+        isWarning: false,
+        items: limitHowToBallItems([
+          createHowToBallItem('move-handle-drag', ['Drag Point'], 'move the selected vertex set'),
+          createHowToBallItem('move-point-add', ['Shift', 'Click Point'], 'stack more vertices into the selection'),
+          createHowToBallItem('move-handle-delete', ['Delete'], 'remove the selected vertices and reclose the contour'),
+          createHowToBallItem('move-wheel', ['Wheel'], 'zoom the viewport'),
+          createHowToBallItem('move-pan', ['Space', 'LMB'], 'move around canvas'),
+        ]),
+        status:
+          selectedHandleCount === 1
+            ? '1 point is armed. Drag it to reshape the contour, or hit Delete to cut it out.'
+            : `${selectedHandleCount} points are armed. Drag them together or delete them in one hit.`,
+      };
     }
 
-    return 'Hover an edge to reveal a + insert point, then click to add a fresh vertex.';
-  }
+    if (selectedShapeCount > 1) {
+      return {
+        isWarning: false,
+        items: limitHowToBallItems([
+          createHowToBallItem('move-drag-shapes', ['Drag Shape'], 'move the whole selection'),
+          createHowToBallItem('move-alt-drag', ['Alt', 'Drag'], 'duplicate the set while dragging'),
+          createHowToBallItem('move-duplicate', ['Ctrl/Cmd', 'D'], 'repeat the last duplicate step'),
+          createHowToBallItem('move-delete', ['Delete'], 'remove the current selection'),
+          createHowToBallItem('move-arrows', ['Arrows'], 'nudge the selection by the grid'),
+        ]),
+        status: `${selectedShapeCount} shapes are selected. Drag one to move the set, or duplicate it in formation.`,
+      };
+    }
 
-  if (canCommitDraft) {
-    return 'Draft is closed. Finish Shape is armed and ready.';
+    if (selectedShapeCount === 1) {
+      return {
+        isWarning: false,
+        items: limitHowToBallItems([
+          createHowToBallItem('move-drag-shape', ['Drag Shape'], 'move the active shape'),
+          ...(canEditVertices
+            ? [
+                createHowToBallItem('move-point', ['Click Point'], 'grab a vertex on the active shape'),
+                createHowToBallItem('move-point-add', ['Shift', 'Click Point'], 'add more vertices to the point selection'),
+              ]
+            : []),
+          createHowToBallItem('move-alt-drag', ['Alt', 'Drag'], 'duplicate while dragging'),
+          createHowToBallItem('move-duplicate', ['Ctrl/Cmd', 'D'], 'repeat the last duplicate step'),
+          createHowToBallItem('move-delete', ['Delete'], 'remove the active shape'),
+        ]),
+        status: canEditVertices
+          ? '1 shape is active. Drag it, grab its points, or duplicate it on pull.'
+          : '1 shape is active. Drag it, duplicate it, or delete it.',
+      };
+    }
+
+    return {
+      isWarning: false,
+      items: limitHowToBallItems([
+        createHowToBallItem('move-click', ['Click'], 'pick a shape on the canvas'),
+        createHowToBallItem('move-lasso', ['Drag'], 'lasso-select a group from empty space'),
+        createHowToBallItem('move-wheel', ['Wheel'], 'zoom the viewport'),
+        createHowToBallItem('move-pan', ['Space', 'LMB'], 'move around canvas'),
+      ]),
+      status: 'No selection yet. Click a shape, or drag across empty space to lasso a set.',
+    };
   }
 
   if (isClassicMode) {
-    return classicPointCount >= 1
-      ? `Classic contour in progress: ${classicPointCount} vertex${classicPointCount === 1 ? '' : 'es'} placed so far.`
-      : 'Classic lasso is empty. Drop the first vertex to begin the contour.';
+    return {
+      isWarning: false,
+      items: limitHowToBallItems([
+        ...(canCommitDraft
+          ? [createHowToBallItem('classic-finish', ['Finish'], 'commit the closed contour')]
+          : []),
+        createHowToBallItem(
+          'classic-place',
+          ['LMB'],
+          classicPointCount === 0 ? 'drop the first vertex' : 'drop the next vertex',
+        ),
+        ...(hasDraftPoints
+          ? [
+              createHowToBallItem('classic-undo', ['Ctrl/Cmd', 'Z'], 'undo the last vertex'),
+              createHowToBallItem('classic-clear', ['Esc'], 'clear the current draft'),
+            ]
+          : []),
+        createHowToBallItem('classic-wheel', ['Wheel'], 'zoom the viewport'),
+        createHowToBallItem('classic-pan', ['Space', 'LMB'], 'move around canvas'),
+      ]),
+      status: canCommitDraft
+        ? 'Classic contour is closed and ready for Finish Shape.'
+        : classicPointCount === 0
+          ? 'Classic lasso is empty. Drop the first vertex to start the contour.'
+          : `Classic contour in progress: ${classicPointCount} vertices are already down.`,
+    };
   }
 
   if (dualPointBehavior === DUAL_POINT_BEHAVIOR_SEQUENTIAL) {
-    return expectedKind === POINT_KIND_B
-      ? 'Sequential dual-point is active: the next left click will place Point 2.'
-      : 'Sequential dual-point is active: the next left click will place Point 1.';
+    const nextPointLabel = expectedKind === POINT_KIND_B ? 'Point 2' : 'Point 1';
+
+    return {
+      isWarning: false,
+      items: limitHowToBallItems([
+        ...(canCommitDraft
+          ? [createHowToBallItem('dual-seq-finish', ['Finish'], 'commit the closed dual-point shape')]
+          : []),
+        createHowToBallItem('dual-seq-place', ['LMB'], `place ${nextPointLabel}`),
+        ...(hasDraftPoints
+          ? [
+              createHowToBallItem('dual-seq-undo', ['Ctrl/Cmd', 'Z'], 'undo the last point'),
+              createHowToBallItem('dual-seq-clear', ['Esc'], 'clear the current draft'),
+            ]
+          : []),
+        createHowToBallItem('dual-seq-wheel', ['Wheel'], 'zoom the viewport'),
+        createHowToBallItem('dual-seq-pan', ['Space', 'LMB'], 'move around canvas'),
+      ]),
+      status: canCommitDraft
+        ? 'Sequential dual-point is closed. Finish Shape will commit it.'
+        : `Sequential dual-point is live: the next left click places ${nextPointLabel}.`,
+    };
   }
 
   if (showTouchControls) {
-    if (touchModeMismatch) {
-      return `Switch to ${expectedKind === POINT_KIND_A ? 'P1' : 'P2'} to keep the pair order locked.`;
-    }
+    const activeLane = (touchMode ?? POINT_KIND_A).toUpperCase();
+    const nextLane = expectedKind === POINT_KIND_B ? 'P2' : 'P1';
 
-    return `Touch lane ready: ${(touchMode ?? POINT_KIND_A).toUpperCase()}.`;
+    return {
+      isWarning: touchModeMismatch,
+      items: limitHowToBallItems([
+        ...(canCommitDraft
+          ? [createHowToBallItem('dual-touch-finish', ['Finish'], 'commit the closed draft')]
+          : []),
+        createHowToBallItem('dual-touch-mode', ['P1', 'P2'], 'pick the active lane'),
+        createHowToBallItem('dual-touch-place', ['Tap'], 'drop the active point'),
+        ...(hasDraftPoints
+          ? [createHowToBallItem('dual-touch-undo', ['Ctrl/Cmd', 'Z'], 'undo the last point')]
+          : []),
+      ]),
+      status: touchModeMismatch
+        ? `${nextLane} is the next legal lane. Switch before the next tap.`
+        : `Abstract dual-point is live. ${activeLane} is armed right now.`,
+    };
   }
 
-  return expectedKind === POINT_KIND_B
-    ? 'Strict pair mode is live: Point 2 is the next legal click.'
-    : 'Drop the opening point to start the next paired segment.';
+  return {
+    isWarning: false,
+    items: limitHowToBallItems([
+      ...(canCommitDraft
+        ? [createHowToBallItem('dual-abs-finish', ['Finish'], 'commit the closed draft')]
+        : []),
+      createHowToBallItem('dual-p1', ['LMB'], 'place Point 1'),
+      createHowToBallItem('dual-p2', ['RMB'], 'place Point 2'),
+      ...(hasDraftPoints
+        ? [createHowToBallItem('dual-undo', ['Ctrl/Cmd', 'Z'], 'undo the last point')]
+        : []),
+      createHowToBallItem('dual-wheel', ['Wheel'], 'zoom the viewport'),
+      createHowToBallItem('dual-pan', ['Space', 'LMB'], 'move around canvas'),
+    ]),
+    status: canCommitDraft
+      ? 'Abstract dual-point is closed. Finish Shape will commit it.'
+      : expectedKind === POINT_KIND_B
+        ? 'Abstract dual-point is live: Point 2 is the next legal click.'
+        : 'Abstract dual-point is live: Point 1 is the next legal click.',
+  };
+}
+
+function createHowToBallItem(id, keys, label) {
+  return { id, keys, label };
+}
+
+function limitHowToBallItems(items, maxItems = 5) {
+  return (items ?? []).filter(Boolean).slice(0, maxItems);
 }
 
 function normalizeEditorMode(editorMode) {
@@ -2764,11 +3241,11 @@ function normalizeEditorMode(editorMode) {
     return EDITOR_MODE_SELECT;
   }
 
-  if (editorMode === EDITOR_MODE_LASSO_SELECT) {
-    return EDITOR_MODE_LASSO_SELECT;
+  if (editorMode === EDITOR_MODE_EDIT) {
+    return EDITOR_MODE_SELECT;
   }
 
-  if (editorMode === EDITOR_MODE_EDIT) {
+  if (editorMode === 'lasso-select') {
     return EDITOR_MODE_SELECT;
   }
 
@@ -2863,6 +3340,30 @@ function getClipboardPasteDelta(surfaceSize, pasteCount) {
   };
 }
 
+function getEffectiveDuplicateDelta(surfaceSize, lastDuplicateDelta) {
+  if (hasMeaningfulDelta(lastDuplicateDelta)) {
+    return {
+      x: Number(lastDuplicateDelta.x),
+      y: Number(lastDuplicateDelta.y),
+    };
+  }
+
+  const stepPx = GRID_STEP_PX;
+
+  return {
+    x: stepPx / Math.max(surfaceSize.width, 1),
+    y: stepPx / Math.max(surfaceSize.height, 1),
+  };
+}
+
+function hasMeaningfulDelta(delta) {
+  if (!delta) {
+    return false;
+  }
+
+  return Math.abs(Number(delta.x) || 0) > Number.EPSILON || Math.abs(Number(delta.y) || 0) > Number.EPSILON;
+}
+
 function getViewportContextMenuPosition(clientX, clientY) {
   if (typeof window === 'undefined') {
     return { x: clientX, y: clientY };
@@ -2870,12 +3371,35 @@ function getViewportContextMenuPosition(clientX, clientY) {
 
   const inset = 12;
   const width = 220;
-  const height = 188;
+  const height = 232;
 
   return {
     x: Math.min(window.innerWidth - width - inset, Math.max(inset, clientX)),
     y: Math.min(window.innerHeight - height - inset, Math.max(inset, clientY)),
   };
+}
+
+function getShapesBounds(shapes = []) {
+  if (!shapes.length) {
+    return null;
+  }
+
+  return shapes
+    .map((shape) => getShapeBounds(shape))
+    .reduce(
+      (bounds, shapeBounds) => ({
+        minX: Math.min(bounds.minX, shapeBounds.minX),
+        maxX: Math.max(bounds.maxX, shapeBounds.maxX),
+        minY: Math.min(bounds.minY, shapeBounds.minY),
+        maxY: Math.max(bounds.maxY, shapeBounds.maxY),
+      }),
+      {
+        minX: Number.POSITIVE_INFINITY,
+        maxX: Number.NEGATIVE_INFINITY,
+        minY: Number.POSITIVE_INFINITY,
+        maxY: Number.NEGATIVE_INFINITY,
+      },
+    );
 }
 
 function getToolbarTooltipPosition(bounds) {
@@ -3056,7 +3580,35 @@ function createHistorySnapshot({
   snapToGrid,
   theme,
 }) {
-  return cloneHistoryValue({
+  return cloneHistoryValue(
+    createLiveSnapshot({
+      appearance,
+      customUiTheme,
+      dualPointBehavior,
+      drawingState,
+      editorMode,
+      selectedHandleIds,
+      selectedShapeIds,
+      shapes,
+      snapToGrid,
+      theme,
+    }),
+  );
+}
+
+function createLiveSnapshot({
+  appearance,
+  customUiTheme,
+  dualPointBehavior,
+  drawingState,
+  editorMode,
+  selectedHandleIds,
+  selectedShapeIds,
+  shapes,
+  snapToGrid,
+  theme,
+}) {
+  return {
     appearance,
     customUiTheme,
     dualPointBehavior,
@@ -3070,7 +3622,7 @@ function createHistorySnapshot({
     shapes,
     snapToGrid,
     theme,
-  });
+  };
 }
 
 function areSnapshotsEquivalent(left, right) {

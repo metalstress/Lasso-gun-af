@@ -1,16 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
 import { snapPointToGrid } from '../lib/grid.js';
-import { DRAW_MODE_CLASSIC, POINT_KIND_A, POINT_KIND_B } from '../lib/lasso.js';
+import { DRAW_MODE_CLASSIC, POINT_KIND_A, POINT_KIND_B, getExpectedKind } from '../lib/lasso.js';
 import { findShapeIdsInLasso, findTopmostShapeIdAtPoint } from '../lib/shapes.js';
 import { drawLassoScene } from '../lib/rendering.js';
 
 const MIN_VIEWPORT_SCALE = 0.35;
 const MAX_VIEWPORT_SCALE = 6;
 const WHEEL_ZOOM_SENSITIVITY = 0.0015;
+const DRAG_START_THRESHOLD_PX = 4;
+const INSERT_HANDLE_SEGMENT_THRESHOLD_PX = 8;
+const INSERT_HANDLE_MIDPOINT_ZONE_MIN = 0.22;
+const INSERT_HANDLE_MIDPOINT_ZONE_MAX = 0.78;
 
 function DrawingCanvas({
   appearance,
   editorMode,
+  focusRequest = null,
   isDraftActive = false,
   isDraftReady = false,
   isSequentialDualPoint = false,
@@ -34,6 +39,8 @@ function DrawingCanvas({
   const canvasRef = useRef(null);
   const dragRef = useRef(null);
   const [hoverInsertHandle, setHoverInsertHandle] = useState(null);
+  const [hoveredHandleId, setHoveredHandleId] = useState(null);
+  const [hoveredShapeId, setHoveredShapeId] = useState(null);
   const [selectionLasso, setSelectionLasso] = useState([]);
   const [surfaceSize, setSurfaceSize] = useState({ width: 960, height: 640 });
   const [viewportOffset, setViewportOffset] = useState({ x: 0, y: 0 });
@@ -77,6 +84,24 @@ function DrawingCanvas({
   }, [onSurfaceChange, surfaceSize]);
 
   useEffect(() => {
+    if (!focusRequest?.bounds) {
+      return;
+    }
+
+    const centerX = (focusRequest.bounds.minX + focusRequest.bounds.maxX) * 0.5;
+    const centerY = (focusRequest.bounds.minY + focusRequest.bounds.maxY) * 0.5;
+
+    if (!Number.isFinite(centerX) || !Number.isFinite(centerY)) {
+      return;
+    }
+
+    setViewportOffset({
+      x: surfaceSize.width * 0.5 - centerX * surfaceSize.width * viewportScale,
+      y: surfaceSize.height * 0.5 - centerY * surfaceSize.height * viewportScale,
+    });
+  }, [focusRequest?.token]);
+
+  useEffect(() => {
     const canvas = canvasRef.current;
 
     if (!canvas) {
@@ -105,6 +130,8 @@ function DrawingCanvas({
       surfaceSize,
       {
         ...scene,
+        hoveredHandleId,
+        hoveredShapeId,
         insertHandle: hoverInsertHandle,
         selectionLasso,
       },
@@ -114,7 +141,7 @@ function DrawingCanvas({
         viewScale: viewportScale,
       },
     );
-  }, [appearance, hoverInsertHandle, scene, selectionLasso, surfaceSize, viewportOffset, viewportScale]);
+  }, [appearance, hoveredHandleId, hoveredShapeId, hoverInsertHandle, scene, selectionLasso, surfaceSize, viewportOffset, viewportScale]);
 
   useEffect(() => {
     const handleKeyDown = (event) => {
@@ -199,16 +226,26 @@ function DrawingCanvas({
 
     onPointerChange(point);
 
-    if (dragRef.current && point) {
-      handleDragMove(point);
+    if (dragRef.current && rawPoint && point) {
+      handleDragMove(point, rawPoint);
       return;
     }
 
     if (isMoveEditMode) {
-      setHoverInsertHandle(findInsertHandle(scene, rawPoint, surfaceSize, viewportScale));
+      const nextHoveredHandle = findHandleAtPoint(scene.editHandles, rawPoint, surfaceSize, viewportScale);
+      setHoveredHandleId(nextHoveredHandle?.id ?? null);
+      setHoveredShapeId(findTopmostShapeIdAtPoint(scene.shapes, rawPoint));
+      const nextInsertHandle = nextHoveredHandle
+        ? null
+        : findInsertHandle(scene, rawPoint, surfaceSize, viewportScale);
+      setHoverInsertHandle((current) =>
+        isSameInsertHandle(current, nextInsertHandle) ? current : nextInsertHandle,
+      );
       return;
     }
 
+    setHoveredHandleId(null);
+    setHoveredShapeId(null);
     setHoverInsertHandle(null);
   };
 
@@ -217,15 +254,16 @@ function DrawingCanvas({
       onPointerChange(null);
     }
 
+    setHoveredHandleId(null);
+    setHoveredShapeId(null);
     setHoverInsertHandle(null);
   };
 
   useEffect(() => {
     if (!isMoveEditMode) {
+      setHoveredHandleId(null);
       setHoverInsertHandle(null);
-    }
-
-    if (editorMode !== 'lasso-select') {
+      setHoveredShapeId(null);
       setSelectionLasso([]);
     }
   }, [editorMode, isMoveEditMode]);
@@ -233,6 +271,7 @@ function DrawingCanvas({
   const handlePointerDown = (event) => {
     if (shouldStartPanGesture(event, isSpacePressed)) {
       event.preventDefault();
+      setHoveredShapeId(null);
       setHoverInsertHandle(null);
       onPointerChange(null);
       setIsPanning(true);
@@ -253,10 +292,7 @@ function DrawingCanvas({
       return;
     }
 
-    if (
-      (isMoveEditMode || editorMode === 'lasso-select') &&
-      event.button !== 0
-    ) {
+    if (isMoveEditMode && event.button !== 0) {
       event.preventDefault();
       return;
     }
@@ -264,12 +300,6 @@ function DrawingCanvas({
     if (isMoveEditMode) {
       event.preventDefault();
       handleSelectionPointerDown(event, rawPoint, point);
-      return;
-    }
-
-    if (editorMode === 'lasso-select') {
-      event.preventDefault();
-      handleLassoSelectionPointerDown(event, point);
       return;
     }
 
@@ -306,6 +336,12 @@ function DrawingCanvas({
       dragRef.current = null;
       event.currentTarget.releasePointerCapture?.(event.pointerId);
       setSelectionLasso([]);
+      return;
+    }
+
+    if (dragRef.current.type === 'pending-handles') {
+      dragRef.current = null;
+      event.currentTarget.releasePointerCapture?.(event.pointerId);
       return;
     }
 
@@ -383,9 +419,8 @@ function DrawingCanvas({
         return;
       }
 
-      onBeginHistoryGesture?.();
       dragRef.current = {
-        type: 'handles',
+        type: 'pending-handles',
         shapeId: hitHandle.shapeId,
         originPoint: snappedPoint,
         baseShape: getShapeSnapshot(scene.shapes, hitHandle.shapeId),
@@ -422,6 +457,7 @@ function DrawingCanvas({
         sourceShapeIds: dragShapeIds,
         shapeIds: dragShapeIds,
         originPoint: snappedPoint,
+        rememberDuplicateDelta: false,
         baseShapes: dragShapeIds
           .map((shapeId) => getShapeSnapshot(scene.shapes, shapeId))
           .filter(Boolean),
@@ -431,7 +467,7 @@ function DrawingCanvas({
     }
 
     onSelectHandleIds([]);
-    handleShapeSelection(event, rawPoint);
+    handleLassoSelectionPointerDown(event, rawPoint);
   }
 
   function handleLassoSelectionPointerDown(event, point) {
@@ -446,35 +482,34 @@ function DrawingCanvas({
     event.currentTarget.setPointerCapture?.(event.pointerId);
   }
 
-  function handleShapeSelection(event, point) {
-    const hitShapeId = findTopmostShapeIdAtPoint(scene.shapes, point);
-    const additiveSelection = event.ctrlKey || event.metaKey || event.shiftKey;
-
-    if (hitShapeId) {
-      onSelectShapeIds(updateSelection(scene.selectedShapeIds, hitShapeId, additiveSelection));
-      return;
-    }
-
-    if (!additiveSelection) {
-      onSelectShapeIds([]);
-    }
-  }
-
-  function handleDragMove(point) {
+  function handleDragMove(point, rawPoint = point) {
     if (!dragRef.current) {
       return;
     }
 
+    if (dragRef.current.type === 'pending-handles') {
+      if (distanceInSurface(dragRef.current.originPoint, point, surfaceSize, viewportScale) < DRAG_START_THRESHOLD_PX) {
+        return;
+      }
+
+      onBeginHistoryGesture?.();
+      dragRef.current = {
+        ...dragRef.current,
+        type: 'handles',
+      };
+    }
+
     if (dragRef.current.type === 'selection-lasso') {
+      const nextPoint = rawPoint ?? point;
       const previousPoint = dragRef.current.points[dragRef.current.points.length - 1];
 
-      if (distanceInSurface(previousPoint, point, surfaceSize, viewportScale) < 8) {
+      if (distanceInSurface(previousPoint, nextPoint, surfaceSize, viewportScale) < 8) {
         return;
       }
 
       dragRef.current = {
         ...dragRef.current,
-        points: [...dragRef.current.points, point],
+        points: [...dragRef.current.points, nextPoint],
       };
       setSelectionLasso(dragRef.current.points);
       return;
@@ -511,14 +546,19 @@ function DrawingCanvas({
         shapeIds: duplicatedDragState.shapeIds,
         originPoint: dragRef.current.originPoint,
         baseShapes: duplicatedDragState.shapes,
+        rememberDuplicateDelta: true,
       };
 
-      onMoveShape(dragRef.current.shapeIds, dragRef.current.baseShapes, delta);
+      onMoveShape(dragRef.current.shapeIds, dragRef.current.baseShapes, delta, {
+        rememberDuplicateDelta: true,
+      });
       return;
     }
 
     if (dragRef.current.type === 'shapes') {
-      onMoveShape(dragRef.current.shapeIds, dragRef.current.baseShapes, delta);
+      onMoveShape(dragRef.current.shapeIds, dragRef.current.baseShapes, delta, {
+        rememberDuplicateDelta: dragRef.current.rememberDuplicateDelta === true,
+      });
     }
   }
 
@@ -670,37 +710,48 @@ function findInsertHandle(scene, point, surfaceSize, viewScale = 1) {
   }
 
   const shape = getShapeSnapshot(scene.shapes, scene.selectedShapeIds[0]);
-  const ring = shape?.polygons?.[0]?.[0];
-
-  if (!ring || ring.length < 3) {
+  if (!shape?.polygons?.length) {
     return null;
   }
 
   let nearestHandle = null;
   let nearestDistance = Number.POSITIVE_INFINITY;
 
-  for (let index = 0; index < ring.length; index += 1) {
-    const start = ring[index];
-    const end = ring[(index + 1) % ring.length];
-    const midpoint = {
-      x: (start.x + end.x) * 0.5,
-      y: (start.y + end.y) * 0.5,
-    };
-    const distance = distanceInSurface(midpoint, point, surfaceSize, viewScale);
+  shape.polygons.forEach((polygon, polygonIndex) => {
+    polygon.forEach((ring, ringIndex) => {
+      if (!ring || ring.length < 3) {
+        return;
+      }
 
-    if (distance <= 14 && distance < nearestDistance) {
-      nearestHandle = {
-        shapeId: shape.id,
-        point: midpoint,
-        location: {
-          polygonIndex: 0,
-          ringIndex: 0,
-          insertIndex: index + 1,
-        },
-      };
-      nearestDistance = distance;
-    }
-  }
+      for (let index = 0; index < ring.length; index += 1) {
+        const start = ring[index];
+        const end = ring[(index + 1) % ring.length];
+        const midpoint = {
+          x: (start.x + end.x) * 0.5,
+          y: (start.y + end.y) * 0.5,
+        };
+        const segmentHover = getSegmentHoverMetrics(point, start, end, surfaceSize, viewScale);
+
+        if (
+          segmentHover.distance <= INSERT_HANDLE_SEGMENT_THRESHOLD_PX &&
+          segmentHover.t >= INSERT_HANDLE_MIDPOINT_ZONE_MIN &&
+          segmentHover.t <= INSERT_HANDLE_MIDPOINT_ZONE_MAX &&
+          segmentHover.distance < nearestDistance
+        ) {
+          nearestHandle = {
+            shapeId: shape.id,
+            point: midpoint,
+            location: {
+              polygonIndex,
+              ringIndex,
+              insertIndex: index + 1,
+            },
+          };
+          nearestDistance = segmentHover.distance;
+        }
+      }
+    });
+  });
 
   return nearestHandle;
 }
@@ -724,8 +775,64 @@ function distanceInSurface(left, right, surfaceSize, viewScale = 1) {
   return Math.hypot(dx, dy);
 }
 
+function getSegmentHoverMetrics(point, start, end, surfaceSize, viewScale = 1) {
+  const startSurface = toSurfacePoint(start, surfaceSize, viewScale);
+  const endSurface = toSurfacePoint(end, surfaceSize, viewScale);
+  const pointSurface = toSurfacePoint(point, surfaceSize, viewScale);
+  const segmentX = endSurface.x - startSurface.x;
+  const segmentY = endSurface.y - startSurface.y;
+  const segmentLengthSquared = segmentX * segmentX + segmentY * segmentY;
+
+  if (segmentLengthSquared <= Number.EPSILON) {
+    return {
+      distance: Math.hypot(pointSurface.x - startSurface.x, pointSurface.y - startSurface.y),
+      t: 0,
+    };
+  }
+
+  const projectedT =
+    ((pointSurface.x - startSurface.x) * segmentX + (pointSurface.y - startSurface.y) * segmentY) /
+    segmentLengthSquared;
+  const t = clamp(projectedT, 0, 1);
+  const projectedX = startSurface.x + segmentX * t;
+  const projectedY = startSurface.y + segmentY * t;
+
+  return {
+    distance: Math.hypot(pointSurface.x - projectedX, pointSurface.y - projectedY),
+    t,
+  };
+}
+
+function toSurfacePoint(point, surfaceSize, viewScale = 1) {
+  return {
+    x: point.x * surfaceSize.width * viewScale,
+    y: point.y * surfaceSize.height * viewScale,
+  };
+}
+
 function clampScale(value) {
   return Math.min(MAX_VIEWPORT_SCALE, Math.max(MIN_VIEWPORT_SCALE, value));
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function isSameInsertHandle(left, right) {
+  if (left === right) {
+    return true;
+  }
+
+  if (!left || !right) {
+    return false;
+  }
+
+  return (
+    left.shapeId === right.shapeId &&
+    left.location?.polygonIndex === right.location?.polygonIndex &&
+    left.location?.ringIndex === right.location?.ringIndex &&
+    left.location?.insertIndex === right.location?.insertIndex
+  );
 }
 
 function isEditableTarget(target) {

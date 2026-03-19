@@ -14,12 +14,14 @@ function ExportOverlay({
   selectionCount = 0,
 }) {
   const [scope, setScope] = useState(defaultScope);
+  const [includeNeonEffects, setIncludeNeonEffects] = useState(Boolean(appearance?.neonShapes));
 
   useEffect(() => {
     if (isOpen) {
       setScope(defaultScope);
+      setIncludeNeonEffects(Boolean(appearance?.neonShapes));
     }
-  }, [defaultScope, isOpen]);
+  }, [appearance?.neonShapes, defaultScope, isOpen]);
 
   if (!isOpen) {
     return null;
@@ -73,6 +75,20 @@ function ExportOverlay({
           </div>
         ) : null}
 
+        <label className="export-toggle">
+          <input
+            type="checkbox"
+            checked={includeNeonEffects}
+            onChange={(event) => setIncludeNeonEffects(event.target.checked)}
+          />
+          <span className="export-toggle-copy">
+            <span className="export-toggle-title">Include Neon Glow</span>
+            <span className="card-note">
+              Export the current shape neon pass instead of only the raw contour and fill colors.
+            </span>
+          </span>
+        </label>
+
         <div className="overlay-grid">
           <section className="export-option">
             <p className="section-label">PNG</p>
@@ -89,7 +105,12 @@ function ExportOverlay({
                 type="button"
                 className="primary-button export-action"
                 onClick={() =>
-                  onExport({ format: EXPORT_FORMAT_PNG, transparentBackground: false, scope })
+                  onExport({
+                    format: EXPORT_FORMAT_PNG,
+                    includeNeonEffects,
+                    transparentBackground: false,
+                    scope,
+                  })
                 }
               >
                 PNG with Background
@@ -98,7 +119,12 @@ function ExportOverlay({
                 type="button"
                 className="secondary-button export-action"
                 onClick={() =>
-                  onExport({ format: EXPORT_FORMAT_PNG, transparentBackground: true, scope })
+                  onExport({
+                    format: EXPORT_FORMAT_PNG,
+                    includeNeonEffects,
+                    transparentBackground: true,
+                    scope,
+                  })
                 }
               >
                 PNG Transparent
@@ -121,7 +147,12 @@ function ExportOverlay({
                 type="button"
                 className="primary-button export-action"
                 onClick={() =>
-                  onExport({ format: EXPORT_FORMAT_SVG, transparentBackground: false, scope })
+                  onExport({
+                    format: EXPORT_FORMAT_SVG,
+                    includeNeonEffects,
+                    transparentBackground: false,
+                    scope,
+                  })
                 }
               >
                 SVG with Background
@@ -130,7 +161,12 @@ function ExportOverlay({
                 type="button"
                 className="secondary-button export-action"
                 onClick={() =>
-                  onExport({ format: EXPORT_FORMAT_SVG, transparentBackground: true, scope })
+                  onExport({
+                    format: EXPORT_FORMAT_SVG,
+                    includeNeonEffects,
+                    transparentBackground: true,
+                    scope,
+                  })
                 }
               >
                 SVG Transparent

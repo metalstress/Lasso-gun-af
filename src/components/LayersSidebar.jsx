@@ -4,6 +4,7 @@ function LayersSidebar({
   className = '',
   isMobileLayout = false,
   onCloseMobilePanel,
+  onContextMenu,
   selectedShapeIds,
   shapes,
   onClearSelection,
@@ -31,7 +32,6 @@ function LayersSidebar({
 
       <div className="panel-copy layers-header">
         <p className="eyebrow">Layers</p>
-        <h2>Shape Stack</h2>
       </div>
 
       <div className="layers-meta">
@@ -55,9 +55,21 @@ function LayersSidebar({
         </div>
       </div>
 
-      <div className="layers-list">
+      <div
+        className="layers-list"
+        onContextMenu={(event) => {
+          if (event.target !== event.currentTarget) {
+            return;
+          }
+
+          onContextMenu?.(null, event);
+        }}
+      >
         {orderedShapes.length === 0 ? (
-          <div className="layers-empty">
+          <div
+            className="layers-empty"
+            onContextMenu={(event) => onContextMenu?.(null, event)}
+          >
             <p className="section-label">Empty Scene</p>
             <p className="card-note">Commit a draft with Finish Shape and it will appear here as a layer.</p>
           </div>
@@ -67,6 +79,7 @@ function LayersSidebar({
               <GroupLayer
                 key={shape.id}
                 isSelected={selectionSet.has(shape.id)}
+                onContextMenu={onContextMenu}
                 onSelectShape={onSelectShape}
                 onUngroupShape={onUngroupShape}
                 shape={shape}
@@ -78,6 +91,7 @@ function LayersSidebar({
                 label={shape.name}
                 meta={shape.sourceMode === 'classic' ? 'Classic contour' : 'Shape layer'}
                 onClick={(event) => onSelectShape(shape.id, event)}
+                onContextMenu={(event) => onContextMenu?.(shape.id, event)}
               />
             ),
           )
@@ -96,13 +110,14 @@ function LayersSidebar({
   );
 }
 
-function GroupLayer({ isSelected, onSelectShape, onUngroupShape, shape }) {
+function GroupLayer({ isSelected, onContextMenu, onSelectShape, onUngroupShape, shape }) {
   return (
     <div className={`layer-group ${isSelected ? 'is-selected' : ''}`}>
       <button
         type="button"
         className="layer-group-header"
         onClick={(event) => onSelectShape(shape.id, event)}
+        onContextMenu={(event) => onContextMenu?.(shape.id, event)}
       >
         <span className="layer-operation">{formatBooleanOperationLabel(shape.group.operation)}</span>
         <span className="layer-title">{shape.group.name}</span>
@@ -136,9 +151,14 @@ function GroupLayer({ isSelected, onSelectShape, onUngroupShape, shape }) {
   );
 }
 
-function LayerRow({ isSelected, label, meta, onClick }) {
+function LayerRow({ isSelected, label, meta, onClick, onContextMenu }) {
   return (
-    <button type="button" className={`layer-row ${isSelected ? 'is-selected' : ''}`} onClick={onClick}>
+    <button
+      type="button"
+      className={`layer-row ${isSelected ? 'is-selected' : ''}`}
+      onClick={onClick}
+      onContextMenu={onContextMenu}
+    >
       <span className="layer-title">{label}</span>
       <span className="layer-meta">{meta}</span>
     </button>

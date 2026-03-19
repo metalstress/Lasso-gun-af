@@ -20,6 +20,14 @@ export const FILL_MODE_FILL = 'fill';
 export const FILL_MODE_OUTLINE = 'outline';
 export const EXPORT_FORMAT_PNG = 'png';
 export const EXPORT_FORMAT_SVG = 'svg';
+const HOVER_ACCENT = '#c0ff68';
+const HOVER_ACCENT_FILL = 'rgba(192, 255, 104, 0.08)';
+const HOVER_ACCENT_GLOW = 'rgba(192, 255, 104, 0.42)';
+const SHAPE_NEON_BLOOM = 'rgba(192, 255, 104, 0.22)';
+const SHAPE_NEON_GLOW = 'rgba(192, 255, 104, 0.4)';
+const SHAPE_NEON_SOFT = 'rgba(219, 255, 148, 0.94)';
+const SHAPE_NEON_CORE = 'rgba(248, 255, 232, 0.98)';
+const SURFACE_POLYGON_CACHE = new WeakMap();
 export const DEFAULT_APPEARANCE = Object.freeze({
   background: '#111111',
   stroke: '#ffffff',
@@ -28,10 +36,15 @@ export const DEFAULT_APPEARANCE = Object.freeze({
   fillMode: FILL_MODE_FILL,
   cornerRadius: DEFAULT_CORNER_RADIUS,
   cornerType: DEFAULT_CORNER_TYPE,
+  neonShapes: false,
 });
 
 export function drawLassoScene(context, surfaceSize, scene, appearance = DEFAULT_APPEARANCE, options = {}) {
-  const style = resolveAppearance(appearance);
+  const appearanceWithRenderOverrides = {
+    ...appearance,
+    neonShapes: options.showShapeNeon ?? appearance.neonShapes,
+  };
+  const style = resolveAppearance(appearanceWithRenderOverrides);
   const isDrawMode = scene.editorMode === 'draw';
   const viewOffset = normalizeViewOffset(options.viewOffset);
   const viewScale = normalizeViewScale(options.viewScale);
@@ -39,6 +52,7 @@ export function drawLassoScene(context, surfaceSize, scene, appearance = DEFAULT
     showBackground: true,
     showGrid: true,
     showHandles: true,
+    showShapeNeon: appearanceWithRenderOverrides.neonShapes,
     showPreview: true,
     showReticle: true,
     ...options,
@@ -86,6 +100,7 @@ export function exportSceneAsPng({
   appearance = DEFAULT_APPEARANCE,
   fileName = 'lasso-scene.png',
   height = 720,
+  includeNeonEffects = false,
   shapes,
   transparentBackground = false,
   width = 1200,
@@ -121,6 +136,7 @@ export function exportSceneAsPng({
       showBackground: !transparentBackground,
       showGrid: false,
       showHandles: false,
+      showShapeNeon: includeNeonEffects,
       showPreview: false,
       showReticle: false,
     },
@@ -133,6 +149,7 @@ export function exportSceneAsSvg({
   appearance = DEFAULT_APPEARANCE,
   fileName = 'lasso-scene.svg',
   height = 720,
+  includeNeonEffects = false,
   shapes,
   transparentBackground = false,
   width = 1200,
@@ -142,8 +159,9 @@ export function exportSceneAsSvg({
   }
 
   const surfaceSize = normalizeSurfaceSize(width, height);
+  const neonDefs = includeNeonEffects ? buildNeonSvgDefs() : '';
   const pathMarkup = shapes
-    .map((shape) => buildSvgMarkupForShape(shape, surfaceSize, appearance))
+    .map((shape) => buildSvgMarkupForShape(shape, surfaceSize, appearance, includeNeonEffects))
     .filter(Boolean)
     .join('');
 
@@ -158,6 +176,7 @@ export function exportSceneAsSvg({
   const svg = [
     '<?xml version="1.0" encoding="UTF-8"?>',
     `<svg xmlns="http://www.w3.org/2000/svg" width="${surfaceSize.width}" height="${surfaceSize.height}" viewBox="0 0 ${surfaceSize.width} ${surfaceSize.height}" fill="none">`,
+    neonDefs,
     backgroundRect,
     pathMarkup,
     '</svg>',
@@ -174,20 +193,37 @@ export function exportSceneAsSvg({
 
 function drawCommittedShapes(context, surfaceSize, scene, style) {
   const selectedIds = new Set(scene.selectedShapeIds ?? []);
+  const hoveredShapeId = scene.hoveredShapeId ?? null;
 
   scene.shapes.forEach((shape) => {
-    const surfacePolygons = toSurfacePolygons(shape, surfaceSize);
+    const surfacePolygons = getCachedSurfacePolygons(shape, surfaceSize);
     const isSelected = selectedIds.has(shape.id);
+    const isHovered = hoveredShapeId === shape.id;
 
     if (style.fillMode === FILL_MODE_FILL) {
-      drawMultiPolygonFill(context, surfacePolygons, style, isSelected ? 1 : 0.82);
+      drawMultiPolygonFill(context, surfacePolygons, style, isSelected ? 1 : isHovered ? 0.9 : 0.82);
     }
 
-    drawMultiPolygonContour(context, surfacePolygons, style, isSelected);
+    if (isHovered) {
+      drawMultiPolygonHoverFill(context, surfacePolygons, style, isSelected);
+    }
+
+    drawMultiPolygonContour(context, surfacePolygons, style, {
+      isHovered,
+      isSelected,
+    });
   });
 
   (scene.editHandles ?? []).forEach((handle) => {
-    drawHandleNode(context, toSurfacePoint(handle.point, surfaceSize), style, true, true, handle.isSelected);
+    drawHandleNode(
+      context,
+      toSurfacePoint(handle.point, surfaceSize),
+      style,
+      true,
+      true,
+      handle.isSelected,
+      scene.hoveredHandleId === handle.id,
+    );
   });
 
   if (scene.insertHandle?.point) {
@@ -352,7 +388,23 @@ function drawMultiPolygonFill(context, polygons, style, alphaMultiplier = 1) {
   context.restore();
 }
 
-function drawMultiPolygonContour(context, polygons, style, isSelected) {
+function drawMultiPolygonHoverFill(context, polygons, style, isSelected) {
+  context.save();
+  context.beginPath();
+  polygons.forEach((polygon) => {
+    polygon.forEach((ring) => {
+      drawPath(context, ring, true, style);
+      context.closePath();
+    });
+  });
+  context.fillStyle = isSelected ? 'rgba(192, 255, 104, 0.12)' : HOVER_ACCENT_FILL;
+  context.shadowBlur = isSelected ? 30 : 24;
+  context.shadowColor = HOVER_ACCENT_GLOW;
+  context.fill('evenodd');
+  context.restore();
+}
+
+function drawMultiPolygonContour(context, polygons, style, { isHovered = false, isSelected = false } = {}) {
   context.save();
   context.beginPath();
   polygons.forEach((polygon) => {
@@ -363,10 +415,34 @@ function drawMultiPolygonContour(context, polygons, style, isSelected) {
   });
   context.lineJoin = 'round';
   context.lineCap = 'round';
-  context.lineWidth = isSelected ? 3.2 : 2.4;
-  context.strokeStyle = style.stroke;
-  context.shadowBlur = isSelected ? 24 : 18;
-  context.shadowColor = style.lineGlow;
+
+  if (style.shapeNeon) {
+    strokeNeonContour(context, {
+      baseWidth: isSelected ? 3.2 : isHovered ? 2.8 : 2.4,
+      isHovered,
+      isSelected,
+    });
+    context.restore();
+    return;
+  }
+
+  if (isHovered) {
+    context.save();
+    context.lineWidth = isSelected ? 6.2 : 5;
+    context.strokeStyle = withAlpha(HOVER_ACCENT, isSelected ? 0.24 : 0.18);
+    context.shadowBlur = isSelected ? 32 : 26;
+    context.shadowColor = HOVER_ACCENT_GLOW;
+    if (isSelected) {
+      context.setLineDash([14, 8]);
+    }
+    context.stroke();
+    context.restore();
+  }
+
+  context.lineWidth = isSelected ? 3.2 : isHovered ? 2.8 : 2.4;
+  context.strokeStyle = isHovered ? HOVER_ACCENT : style.stroke;
+  context.shadowBlur = isHovered ? 26 : isSelected ? 24 : 18;
+  context.shadowColor = isHovered ? HOVER_ACCENT_GLOW : style.lineGlow;
   if (isSelected) {
     context.setLineDash([14, 8]);
   }
@@ -391,6 +467,17 @@ function drawRingContour(context, ring, style, isSelected, alphaMultiplier = 1) 
   context.closePath();
   context.lineJoin = 'round';
   context.lineCap = 'round';
+
+  if (style.shapeNeon) {
+    strokeNeonContour(context, {
+      alphaMultiplier,
+      baseWidth: isSelected ? 3.2 : 2.4,
+      isSelected,
+    });
+    context.restore();
+    return;
+  }
+
   context.lineWidth = isSelected ? 3.2 : 2.4;
   context.strokeStyle = withAlpha(style.stroke, alphaMultiplier);
   context.shadowBlur = isSelected ? 24 : 18;
@@ -409,6 +496,16 @@ function drawPolyline(context, points, style, alphaMultiplier = 1) {
   drawPath(context, points, false, style);
   context.lineJoin = 'round';
   context.lineCap = 'round';
+
+  if (style.shapeNeon) {
+    strokeNeonContour(context, {
+      alphaMultiplier,
+      baseWidth: 2.4,
+    });
+    context.restore();
+    return;
+  }
+
   context.lineWidth = 2.4;
   context.strokeStyle = withAlpha(style.stroke, alphaMultiplier);
   context.shadowBlur = 18;
@@ -446,20 +543,30 @@ function drawNodes(context, points, highlightTail, style, showBackground) {
   });
 }
 
-function drawHandleNode(context, point, style, highlight = false, showBackground = true, isSelected = false) {
+function drawHandleNode(
+  context,
+  point,
+  style,
+  highlight = false,
+  showBackground = true,
+  isSelected = false,
+  isHovered = false,
+) {
   context.save();
   context.beginPath();
-  context.arc(point.x, point.y, isSelected ? 7.2 : highlight ? 6.5 : 5, 0, Math.PI * 2);
+  context.arc(point.x, point.y, isSelected ? 7.2 : isHovered ? 6.8 : highlight ? 6.5 : 5, 0, Math.PI * 2);
   context.fillStyle = isSelected
     ? 'rgba(192, 255, 104, 0.88)'
-    : showBackground
-      ? style.panel
-      : 'rgba(0, 0, 0, 0)';
-  context.shadowBlur = isSelected ? 24 : highlight ? 20 : 12;
-  context.shadowColor = isSelected ? 'rgba(192, 255, 104, 0.34)' : style.lineGlow;
+    : isHovered
+      ? 'rgba(192, 255, 104, 0.22)'
+      : showBackground
+        ? style.panel
+        : 'rgba(0, 0, 0, 0)';
+  context.shadowBlur = isSelected ? 24 : isHovered ? 20 : highlight ? 20 : 12;
+  context.shadowColor = isSelected || isHovered ? 'rgba(192, 255, 104, 0.34)' : style.lineGlow;
   context.fill();
-  context.lineWidth = isSelected ? 2.8 : highlight ? 2.4 : 1.8;
-  context.strokeStyle = isSelected ? '#c0ff68' : style.stroke;
+  context.lineWidth = isSelected ? 2.8 : isHovered ? 2.5 : highlight ? 2.4 : 1.8;
+  context.strokeStyle = isSelected || isHovered ? '#c0ff68' : style.stroke;
   context.stroke();
   context.restore();
 }
@@ -524,7 +631,7 @@ function drawReticle(context, point, style) {
   context.restore();
 }
 
-function buildSvgMarkupForShape(shape, surfaceSize, appearance) {
+function buildSvgMarkupForShape(shape, surfaceSize, appearance, includeNeonEffects = false) {
   const cornerRadius = normalizeCornerRadius(appearance.cornerRadius ?? DEFAULT_APPEARANCE.cornerRadius);
   const cornerType = normalizeCornerType(appearance.cornerType ?? DEFAULT_APPEARANCE.cornerType);
   const pathData = buildSvgPathFromShape(shape, surfaceSize, {
@@ -540,7 +647,33 @@ function buildSvgMarkupForShape(shape, surfaceSize, appearance) {
   const fillOpacity =
     appearance.fillMode === FILL_MODE_OUTLINE ? 0 : clamp(appearance.fillOpacity / 100, 0, 1);
 
+  if (includeNeonEffects) {
+    return [
+      `<path d="${pathData}" fill="${escapeXml(fillColor)}" fill-opacity="${fillOpacity}" fill-rule="evenodd" stroke="none" />`,
+      `<path d="${pathData}" fill="none" stroke="#C0FF68" stroke-opacity="0.24" stroke-width="7.8" stroke-linejoin="round" stroke-linecap="round" filter="url(#shape-neon-bloom)" />`,
+      `<path d="${pathData}" fill="none" stroke="#DBFF94" stroke-opacity="0.96" stroke-width="4.2" stroke-linejoin="round" stroke-linecap="round" filter="url(#shape-neon-glow)" />`,
+      `<path d="${pathData}" fill="none" stroke="#F8FFE8" stroke-opacity="0.98" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round" filter="url(#shape-neon-core)" />`,
+    ].join('');
+  }
+
   return `<path d="${pathData}" fill="${escapeXml(fillColor)}" fill-opacity="${fillOpacity}" fill-rule="evenodd" stroke="${escapeXml(appearance.stroke)}" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round" />`;
+}
+
+function buildNeonSvgDefs() {
+  return [
+    '<defs>',
+    '<filter id="shape-neon-bloom" x="-45%" y="-45%" width="190%" height="190%">',
+    '<feGaussianBlur stdDeviation="6.5" result="blur" />',
+    '<feColorMatrix in="blur" type="matrix" values="1 0 0 0 0 0 1 0 0 0 0 0.95 0 0 0 0 0 0 1 0" />',
+    '</filter>',
+    '<filter id="shape-neon-glow" x="-30%" y="-30%" width="160%" height="160%">',
+    '<feGaussianBlur stdDeviation="2.8" />',
+    '</filter>',
+    '<filter id="shape-neon-core" x="-18%" y="-18%" width="136%" height="136%">',
+    '<feGaussianBlur stdDeviation="0.85" />',
+    '</filter>',
+    '</defs>',
+  ].join('');
 }
 
 function drawPath(context, points, closed, style) {
@@ -586,6 +719,7 @@ function resolveAppearance(appearance) {
     stroke: nextAppearance.stroke,
     fill: toRgba(nextAppearance.fill, clamp(nextAppearance.fillOpacity / 100, 0, 1)),
     fillMode: nextAppearance.fillMode,
+    shapeNeon: Boolean(nextAppearance.neonShapes),
     cornerRadius: normalizeCornerRadius(nextAppearance.cornerRadius),
     cornerType: normalizeCornerType(nextAppearance.cornerType),
     gridMinor: toRgba(nextAppearance.stroke, 0.035),
@@ -593,6 +727,23 @@ function resolveAppearance(appearance) {
     lineGlow: toRgba(nextAppearance.stroke, 0.16),
     strokeSoft: toRgba(nextAppearance.stroke, 0.1),
   };
+}
+
+function getCachedSurfacePolygons(shape, surfaceSize) {
+  const cacheKey = `${surfaceSize.width}x${surfaceSize.height}`;
+  const cached = SURFACE_POLYGON_CACHE.get(shape);
+
+  if (cached?.key === cacheKey) {
+    return cached.value;
+  }
+
+  const nextValue = toSurfacePolygons(shape, surfaceSize);
+  SURFACE_POLYGON_CACHE.set(shape, {
+    key: cacheKey,
+    value: nextValue,
+  });
+
+  return nextValue;
 }
 
 function toSurfacePoint(point, surfaceSize) {
@@ -627,6 +778,52 @@ function withAlpha(rgbaColor, multiplier) {
   return rgbaColor.replace(/rgba\(([^,]+),([^,]+),([^,]+),([^)]+)\)/, (_, r, g, b, a) => {
     return `rgba(${r},${g},${b},${clamp(Number(a) * multiplier, 0, 1)})`;
   });
+}
+
+function strokeNeonContour(
+  context,
+  {
+    alphaMultiplier = 1,
+    baseWidth = 2.4,
+    isHovered = false,
+    isSelected = false,
+  } = {},
+) {
+  const bloomWidth = baseWidth + (isSelected ? 5.6 : isHovered ? 4.8 : 4.2);
+  const glowWidth = baseWidth + (isSelected ? 2.8 : isHovered ? 2.2 : 1.8);
+
+  context.save();
+  if (isSelected) {
+    context.setLineDash([14, 8]);
+  }
+  context.lineWidth = bloomWidth;
+  context.strokeStyle = withAlpha(SHAPE_NEON_BLOOM, alphaMultiplier * (isSelected ? 1.12 : isHovered ? 1.02 : 0.94));
+  context.shadowBlur = isSelected ? 42 : isHovered ? 38 : 34;
+  context.shadowColor = SHAPE_NEON_GLOW;
+  context.stroke();
+  context.restore();
+
+  context.save();
+  if (isSelected) {
+    context.setLineDash([14, 8]);
+  }
+  context.lineWidth = glowWidth;
+  context.strokeStyle = withAlpha(SHAPE_NEON_SOFT, alphaMultiplier);
+  context.shadowBlur = isSelected ? 28 : isHovered ? 24 : 22;
+  context.shadowColor = SHAPE_NEON_GLOW;
+  context.stroke();
+  context.restore();
+
+  context.save();
+  if (isSelected) {
+    context.setLineDash([14, 8]);
+  }
+  context.lineWidth = baseWidth;
+  context.strokeStyle = withAlpha(SHAPE_NEON_CORE, alphaMultiplier);
+  context.shadowBlur = isSelected ? 18 : isHovered ? 16 : 14;
+  context.shadowColor = SHAPE_NEON_GLOW;
+  context.stroke();
+  context.restore();
 }
 
 function escapeXml(value) {

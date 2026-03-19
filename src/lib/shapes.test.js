@@ -3,10 +3,12 @@ import {
   BOOLEAN_UNION,
   BOOLEAN_XOR,
   createShapeFromDraft,
+  deleteShapeVertices,
   duplicateShapes,
   flattenShapes,
   insertShapeVertex,
   isShapeEditable,
+  listEditableHandles,
   moveShape,
   runBooleanOperation,
   ungroupShapes,
@@ -116,6 +118,48 @@ describe('shape helpers', () => {
     expect(shape.polygons[0][0]).toHaveLength(3);
   });
 
+  it('deletes selected vertices and recloses the contour', () => {
+    let classic = setDrawMode(clear(), DRAW_MODE_CLASSIC);
+    classic = addPoint(classic, POINT_KIND_A, { x: 0.2, y: 0.2 });
+    classic = addPoint(classic, POINT_KIND_A, { x: 0.8, y: 0.2 });
+    classic = addPoint(classic, POINT_KIND_A, { x: 0.8, y: 0.5 });
+    classic = addPoint(classic, POINT_KIND_A, { x: 0.2, y: 0.5 });
+
+    const shape = createShapeFromDraft(classic);
+    const updated = deleteShapeVertices(shape, [
+      { polygonIndex: 0, ringIndex: 0, pointIndex: 1 },
+    ]);
+
+    expect(updated.polygons[0][0]).toHaveLength(3);
+    expect(updated.polygons[0][0]).toEqual([
+      { x: 0.2, y: 0.2 },
+      { x: 0.8, y: 0.5 },
+      { x: 0.2, y: 0.5 },
+    ]);
+  });
+
+  it('deletes multiple shift-selected vertices in one pass', () => {
+    let classic = setDrawMode(clear(), DRAW_MODE_CLASSIC);
+    classic = addPoint(classic, POINT_KIND_A, { x: 0.1, y: 0.1 });
+    classic = addPoint(classic, POINT_KIND_A, { x: 0.4, y: 0.1 });
+    classic = addPoint(classic, POINT_KIND_A, { x: 0.7, y: 0.2 });
+    classic = addPoint(classic, POINT_KIND_A, { x: 0.8, y: 0.5 });
+    classic = addPoint(classic, POINT_KIND_A, { x: 0.2, y: 0.7 });
+
+    const shape = createShapeFromDraft(classic);
+    const updated = deleteShapeVertices(shape, [
+      { polygonIndex: 0, ringIndex: 0, pointIndex: 1 },
+      { polygonIndex: 0, ringIndex: 0, pointIndex: 3 },
+    ]);
+
+    expect(updated.polygons[0][0]).toHaveLength(3);
+    expect(updated.polygons[0][0]).toEqual([
+      { x: 0.1, y: 0.1 },
+      { x: 0.7, y: 0.2 },
+      { x: 0.2, y: 0.7 },
+    ]);
+  });
+
   it('moves shapes freely beyond the original viewport bounds', () => {
     let classic = setDrawMode(clear(), DRAW_MODE_CLASSIC);
     classic = addPoint(classic, POINT_KIND_A, { x: 0.2, y: 0.2 });
@@ -184,5 +228,43 @@ describe('shape helpers', () => {
     expect(flattened.id).not.toBe(union.id);
     expect(flattened.group).toBeNull();
     expect(flattened.polygons).toEqual(union.polygons);
+  });
+
+  it('keeps flattened multi-contour shapes editable', () => {
+    let first = setDrawMode(clear(), DRAW_MODE_CLASSIC);
+    first = addPoint(first, POINT_KIND_A, { x: 0.1, y: 0.1 });
+    first = addPoint(first, POINT_KIND_A, { x: 0.3, y: 0.1 });
+    first = addPoint(first, POINT_KIND_A, { x: 0.3, y: 0.3 });
+    first = addPoint(first, POINT_KIND_A, { x: 0.1, y: 0.3 });
+
+    let second = setDrawMode(clear(), DRAW_MODE_CLASSIC);
+    second = addPoint(second, POINT_KIND_A, { x: 0.6, y: 0.6 });
+    second = addPoint(second, POINT_KIND_A, { x: 0.8, y: 0.6 });
+    second = addPoint(second, POINT_KIND_A, { x: 0.8, y: 0.8 });
+    second = addPoint(second, POINT_KIND_A, { x: 0.6, y: 0.8 });
+
+    const flattened = flattenShapes([createShapeFromDraft(first), createShapeFromDraft(second)]);
+
+    expect(flattened).not.toBeNull();
+    expect(flattened.polygons.length).toBe(2);
+    expect(isShapeEditable(flattened)).toBe(true);
+    expect(listEditableHandles(flattened)).toHaveLength(8);
+
+    const moved = updateShapeVertex(
+      flattened,
+      { polygonIndex: 1, ringIndex: 0, pointIndex: 2 },
+      { x: 0.82, y: 0.83 },
+    );
+
+    expect(moved.polygons[1][0][2]).toEqual({ x: 0.82, y: 0.83 });
+
+    const inserted = insertShapeVertex(
+      flattened,
+      { polygonIndex: 1, ringIndex: 0, insertIndex: 1 },
+      { x: 0.7, y: 0.6 },
+    );
+
+    expect(inserted.polygons[1][0]).toHaveLength(5);
+    expect(inserted.polygons[1][0][1]).toEqual({ x: 0.7, y: 0.6 });
   });
 });
