@@ -2129,6 +2129,8 @@ function App() {
       return false;
     }
 
+    const importedBounds = getShapesBounds(importedShapes);
+
     commitHistoryChange((snapshot) => ({
       ...snapshot,
       drawingState: clear(snapshot.drawingState),
@@ -2137,6 +2139,13 @@ function App() {
       selectedShapeIds: importedShapes.map((shape) => shape.id),
       editorMode: EDITOR_MODE_SELECT,
     }));
+
+    if (importedBounds) {
+      setFocusRequest((current) => ({
+        bounds: importedBounds,
+        token: (current?.token ?? 0) + 1,
+      }));
+    }
 
     return true;
   };

@@ -744,7 +744,7 @@ function DrawingCanvas({
     fileDragDepthRef.current = 0;
     setIsSvgDropActive(false);
 
-    const svgFile = Array.from(event.dataTransfer.files ?? []).find((file) => isSvgFile(file));
+    const svgFile = extractDroppedSvgFile(event.dataTransfer);
 
     if (!svgFile) {
       return;
@@ -1328,6 +1328,25 @@ function isSvgFile(file) {
   return (
     String(file.type ?? '').toLowerCase() === 'image/svg+xml' ||
     String(file.name ?? '').toLowerCase().endsWith('.svg')
+  );
+}
+
+function extractDroppedSvgFile(dataTransfer) {
+  if (!dataTransfer) {
+    return null;
+  }
+
+  const directFile = Array.from(dataTransfer.files ?? []).find((file) => isSvgFile(file));
+
+  if (directFile) {
+    return directFile;
+  }
+
+  return (
+    Array.from(dataTransfer.items ?? [])
+      .filter((item) => item.kind === 'file')
+      .map((item) => item.getAsFile?.())
+      .find((file) => isSvgFile(file)) ?? null
   );
 }
 

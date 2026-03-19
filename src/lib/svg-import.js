@@ -1,10 +1,13 @@
+import { GRID_STEP_PX } from './grid.js';
 import { createShapeFromPolygons } from './shapes.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const PATH_SAMPLE_STEP = 10;
 const MIN_PATH_POINTS = 12;
 const MAX_PATH_POINTS = 240;
-const DEFAULT_IMPORT_SCALE = 0.72;
+const TARGET_IMPORT_HEIGHT_CELLS = 20;
+const MAX_IMPORT_WIDTH_RATIO = 0.8;
+const MAX_IMPORT_HEIGHT_RATIO = 0.82;
 
 export async function importSvgFileAsShapes(file, options = {}) {
   if (!isSvgFile(file)) {
@@ -438,10 +441,14 @@ function getRawShapeBounds(rawShapes) {
 function getImportScale(bounds, surfaceSize) {
   const width = Math.max(1, bounds.maxX - bounds.minX);
   const height = Math.max(1, bounds.maxY - bounds.minY);
-  const maxWidth = Math.max(1, surfaceSize.width * DEFAULT_IMPORT_SCALE);
-  const maxHeight = Math.max(1, surfaceSize.height * DEFAULT_IMPORT_SCALE);
+  const targetHeight = Math.max(GRID_STEP_PX, GRID_STEP_PX * TARGET_IMPORT_HEIGHT_CELLS);
+  const maxWidth = Math.max(1, surfaceSize.width * MAX_IMPORT_WIDTH_RATIO);
+  const maxHeight = Math.max(1, surfaceSize.height * MAX_IMPORT_HEIGHT_RATIO);
 
-  return Math.min(1, maxWidth / width, maxHeight / height);
+  return Math.max(
+    Number.EPSILON,
+    Math.min(targetHeight / height, maxWidth / width, maxHeight / height),
+  );
 }
 
 function normalizeSurfaceSize(surfaceSize) {
