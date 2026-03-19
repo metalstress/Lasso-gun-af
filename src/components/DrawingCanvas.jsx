@@ -699,7 +699,7 @@ function DrawingCanvas({
   };
 
   const handleSvgDragEnter = (event) => {
-    if (!hasSvgDragPayload(event.dataTransfer)) {
+    if (!hasFileDragPayload(event.dataTransfer)) {
       return;
     }
 
@@ -709,11 +709,12 @@ function DrawingCanvas({
   };
 
   const handleSvgDragOver = (event) => {
-    if (!hasSvgDragPayload(event.dataTransfer)) {
+    if (!hasFileDragPayload(event.dataTransfer)) {
       return;
     }
 
     event.preventDefault();
+    event.stopPropagation();
     event.dataTransfer.dropEffect = 'copy';
     if (!isSvgDropActive) {
       setIsSvgDropActive(true);
@@ -721,7 +722,7 @@ function DrawingCanvas({
   };
 
   const handleSvgDragLeave = (event) => {
-    if (!hasSvgDragPayload(event.dataTransfer)) {
+    if (!hasFileDragPayload(event.dataTransfer)) {
       return;
     }
 
@@ -734,11 +735,12 @@ function DrawingCanvas({
   };
 
   const handleSvgDrop = async (event) => {
-    if (!hasSvgDragPayload(event.dataTransfer)) {
+    if (!hasFileDragPayload(event.dataTransfer)) {
       return;
     }
 
     event.preventDefault();
+    event.stopPropagation();
     fileDragDepthRef.current = 0;
     setIsSvgDropActive(false);
 
@@ -1290,9 +1292,18 @@ function maybeSnapPoint(point, surfaceSize, snapToGrid) {
   return snapPointToGrid(point, surfaceSize);
 }
 
-function hasSvgDragPayload(dataTransfer) {
+function hasFileDragPayload(dataTransfer) {
   if (!dataTransfer) {
     return false;
+  }
+
+  const types = Array.from(dataTransfer.types ?? [], (type) => String(type).toLowerCase());
+
+  if (
+    types.includes('files') ||
+    types.includes('application/x-moz-file')
+  ) {
+    return true;
   }
 
   const items = Array.from(dataTransfer.items ?? []);
@@ -1300,9 +1311,7 @@ function hasSvgDragPayload(dataTransfer) {
   if (
     items.some(
       (item) =>
-        item.kind === 'file' &&
-        (String(item.type ?? '').toLowerCase() === 'image/svg+xml' ||
-          String(item.type ?? '') === ''),
+        item.kind === 'file',
     )
   ) {
     return true;
