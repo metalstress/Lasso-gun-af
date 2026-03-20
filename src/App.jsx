@@ -1,5 +1,13 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import afCatLogo from './assets/af-cat.svg';
+import classicPolyIcon from './assets/tool-icons/classic-poly.svg';
+import drawToolIcon from './assets/tool-icons/draw.svg';
+import dualPolyIcon from './assets/tool-icons/dual-poly.svg';
+import moveToolIcon from './assets/tool-icons/move.svg';
+import resetPointsIcon from './assets/tool-icons/reset-points.svg';
+import settingsToolIcon from './assets/tool-icons/settings.svg';
+import shapeDestroyerIcon from './assets/tool-icons/shape-destroyer.svg';
+import snapToGridIcon from './assets/tool-icons/snap2grid.svg';
 import DrawingCanvas from './components/DrawingCanvas.jsx';
 import ExportOverlay from './components/ExportOverlay.jsx';
 import LayersSidebar from './components/LayersSidebar.jsx';
@@ -2772,7 +2780,7 @@ function App() {
                   isActive={isMoveMode}
                   label="Move / Edit"
                   hotkey="V"
-                  icon={<MoveToolIcon />}
+                  icon={<SvgAssetIcon src={moveToolIcon} />}
                   tooltipProps={getToolbarTooltipProps('Move / Edit', 'V')}
                   onClick={() => handleEditorModeChange(EDITOR_MODE_SELECT)}
                 />
@@ -2781,7 +2789,7 @@ function App() {
                   isActive={activeEditorMode === EDITOR_MODE_DRAW}
                   label="Draw"
                   hotkey="D"
-                  icon={<DrawToolIcon />}
+                  icon={<SvgAssetIcon src={drawToolIcon} />}
                   tooltipProps={getToolbarTooltipProps('Draw', 'D')}
                   onClick={() => handleEditorModeChange(EDITOR_MODE_DRAW)}
                 />
@@ -2854,7 +2862,7 @@ function App() {
                 isActive={isMoveMode}
                 label="Move / Edit"
                 hotkey="V"
-                icon={<MoveToolIcon />}
+                icon={<SvgAssetIcon src={moveToolIcon} />}
                 tooltipProps={getToolbarTooltipProps('Move / Edit', 'V')}
                 onClick={() => handleEditorModeChange(EDITOR_MODE_SELECT)}
               />
@@ -2874,7 +2882,7 @@ function App() {
                 isActive={activeEditorMode === EDITOR_MODE_DRAW}
                 label="Draw"
                 hotkey="D"
-                icon={<DrawToolIcon />}
+                icon={<SvgAssetIcon src={drawToolIcon} />}
                 tooltipProps={getToolbarTooltipProps('Draw', 'D')}
                 onClick={() => handleEditorModeChange(EDITOR_MODE_DRAW)}
               />
@@ -2902,7 +2910,7 @@ function App() {
                   {...getToolbarTooltipProps('Classic Lasso', '1')}
                 >
                   <span className="tool-button-icon" aria-hidden="true">
-                    <ClassicLassoModeIcon />
+                    <SvgAssetIcon src={classicPolyIcon} />
                   </span>
                 </button>
                 <button
@@ -2913,7 +2921,7 @@ function App() {
                   {...getToolbarTooltipProps('Dual-Point', '2')}
                 >
                   <span className="tool-button-icon" aria-hidden="true">
-                    <DualPointModeIcon />
+                    <SvgAssetIcon src={dualPolyIcon} />
                   </span>
                 </button>
               </div>
@@ -2930,14 +2938,14 @@ function App() {
                 {...getToolbarTooltipProps('Snap2Grid', 'G')}
               >
                 <span className="tool-button-icon" aria-hidden="true">
-                  <SnapGridIcon />
+                  <SvgAssetIcon src={snapToGridIcon} />
                 </span>
               </button>
               <ToolButton
                 disabled={!canResetSnapToGrid}
                 label="Reset Snap2Grid"
                 hotkey=""
-                icon={<ResetGridIcon />}
+                icon={<SvgAssetIcon src={resetPointsIcon} />}
                 tooltipProps={getToolbarTooltipProps('Reset Snap2Grid', '')}
                 onClick={handleResetSnapToGrid}
               />
@@ -2968,7 +2976,7 @@ function App() {
                 className="preferences-tool"
                 label="Preferences"
                 hotkey="P"
-                icon={<PreferencesIcon />}
+                icon={<SvgAssetIcon src={settingsToolIcon} />}
                 tooltipProps={getToolbarTooltipProps('Preferences', 'P')}
                 onClick={() => openPreferencesPanel(PREFERENCES_TAB_TOOLS)}
               />
@@ -3299,7 +3307,7 @@ function DestroyToolButton({
         isActive={isActive}
         label="Shape Destroyer"
         hotkey="X"
-        icon={<DestroyToolIcon />}
+        icon={<SvgAssetIcon src={shapeDestroyerIcon} />}
         tooltipProps={getTooltipProps('Shape Destroyer / RMB size', 'X')}
         onClick={onClick}
         onContextMenu={onContextMenu}
@@ -3433,14 +3441,9 @@ function ContextMenuItem({ disabled = false, hint, label, onClick }) {
   );
 }
 
-function MoveToolIcon() {
+function SvgAssetIcon({ src }) {
   return (
-    <svg viewBox="0 0 20 20" aria-hidden="true">
-      <path
-        d="M4.15 2.2v13.1l3.72-2.2 2.27 4.7 2.2-1.04-2.22-4.58 5.33-.46L4.15 2.2Z"
-        fill="currentColor"
-      />
-    </svg>
+    <img className="tool-icon-asset" src={src} alt="" draggable="false" />
   );
 }
 
@@ -3461,35 +3464,6 @@ function TransformToolIcon() {
       <circle cx="15.9" cy="4.1" r="1.1" fill="currentColor" />
       <circle cx="15.9" cy="15.9" r="1.1" fill="currentColor" />
       <circle cx="4.1" cy="15.9" r="1.1" fill="currentColor" />
-    </svg>
-  );
-}
-
-function DestroyToolIcon() {
-  return (
-    <svg viewBox="0 0 20 20" aria-hidden="true">
-      <path
-        d="M5 6.1 9.5 2.8l7.2 7.2-3.3 4.5H8.8L5 11.2Z"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.45"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M9.1 14.5h5.8M8 11.2h5.8"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.45"
-        strokeLinecap="round"
-      />
-      <path
-        d="M4.2 15.8h11.6"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.45"
-        strokeLinecap="round"
-        opacity="0.58"
-      />
     </svg>
   );
 }
@@ -3538,18 +3512,6 @@ function EditToolIcon() {
     <svg viewBox="0 0 16 16" aria-hidden="true">
       <path d="m11.8 2.2 2 2-7.6 7.6-2.8.8.8-2.8 7.6-7.6Z" fill="none" stroke="currentColor" strokeWidth="1.5" />
       <path d="M9.9 4.1 12 6.2" fill="none" stroke="currentColor" strokeWidth="1.5" />
-    </svg>
-  );
-}
-
-function DrawToolIcon() {
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden="true">
-      <path d="M2.5 11.5 5 4.5l4.5 2.2 4-3.7" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-      <circle cx="5" cy="4.5" r="1.2" fill="currentColor" />
-      <circle cx="9.5" cy="6.7" r="1.2" fill="currentColor" />
-      <circle cx="13.5" cy="3" r="1.2" fill="currentColor" />
-      <circle cx="2.5" cy="11.5" r="1.2" fill="currentColor" />
     </svg>
   );
 }
@@ -3678,101 +3640,6 @@ function AlignCenterYIcon() {
       <path d="M2.5 8h11" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
       <rect x="3.8" y="4.2" width="2.8" height="7.6" rx="0.8" fill="none" stroke="currentColor" strokeWidth="1.2" />
       <rect x="9.4" y="5.2" width="2.8" height="5.6" rx="0.8" fill="none" stroke="currentColor" strokeWidth="1.2" />
-    </svg>
-  );
-}
-
-function DualPointModeIcon() {
-  return (
-    <svg viewBox="0 0 20 20" aria-hidden="true">
-      <path d="M3 5.5 7.4 8.4 11 4.8 16.5 7.6" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M3 14.5 7.4 11.6 11 15.2 16.5 12.4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx="3" cy="5.5" r="1.2" fill="currentColor" />
-      <circle cx="3" cy="14.5" r="1.2" fill="currentColor" />
-      <circle cx="16.5" cy="7.6" r="1.2" fill="currentColor" />
-      <circle cx="16.5" cy="12.4" r="1.2" fill="currentColor" />
-    </svg>
-  );
-}
-
-function ClassicLassoModeIcon() {
-  return (
-    <svg viewBox="0 0 20 20" aria-hidden="true">
-      <path
-        d="M4 12.8 6.4 5.2 13.2 4.2 16.3 10.4 11.2 15.8Z"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <circle cx="6.4" cy="5.2" r="1.15" fill="currentColor" />
-      <circle cx="13.2" cy="4.2" r="1.15" fill="currentColor" />
-      <circle cx="16.3" cy="10.4" r="1.15" fill="currentColor" />
-      <circle cx="11.2" cy="15.8" r="1.15" fill="currentColor" />
-      <circle cx="4" cy="12.8" r="1.15" fill="currentColor" />
-    </svg>
-  );
-}
-
-function SnapGridIcon() {
-  return (
-    <svg viewBox="0 0 20 20" aria-hidden="true">
-      <path
-        d="M4 4.5h12M4 10h12M4 15.5h12M4.5 4v12M10 4v12M15.5 4v12"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.2"
-        strokeLinecap="round"
-        opacity="0.62"
-      />
-      <circle cx="10" cy="10" r="2" fill="currentColor" />
-    </svg>
-  );
-}
-
-function ResetGridIcon() {
-  return (
-    <svg viewBox="0 0 20 20" aria-hidden="true">
-      <path
-        d="M4 5.2h8.6a3.4 3.4 0 1 1 0 6.8H8.8"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-      />
-      <path
-        d="m6 3.3-2.6 2.6L6 8.5"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M6.4 13.8h7.2M10 10.2v7.2"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinecap="round"
-        opacity="0.52"
-      />
-      <circle cx="10" cy="13.8" r="1.7" fill="currentColor" />
-    </svg>
-  );
-}
-
-function PreferencesIcon() {
-  return (
-    <svg viewBox="0 0 20 20" aria-hidden="true">
-      <path
-        d="M10 3.4 11.1 2l2 1 .2 2a5.8 5.8 0 0 1 1.2.7l1.9-.8 1.2 1.8-1.4 1.5c.12.39.18.8.18 1.2s-.06.81-.18 1.2l1.4 1.5-1.2 1.8-1.9-.8c-.37.3-.77.53-1.2.7l-.2 2-2 1L10 16.6l-1.1 1.4-2-1-.2-2a5.8 5.8 0 0 1-1.2-.7l-1.9.8-1.2-1.8 1.4-1.5A4.1 4.1 0 0 1 3.7 10c0-.41.06-.81.18-1.2L2.5 7.3l1.2-1.8 1.9.8c.37-.3.77-.53 1.2-.7l.2-2 2-1L10 3.4Z"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.35"
-        strokeLinejoin="round"
-      />
-      <circle cx="10" cy="10" r="2.4" fill="none" stroke="currentColor" strokeWidth="1.35" />
     </svg>
   );
 }

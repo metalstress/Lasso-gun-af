@@ -1902,11 +1902,27 @@ input[type="range"] {
 }
 
 .tool-button-icon svg,
+.tool-button-icon img,
 .tool-toggle-button svg,
+.tool-toggle-button img,
 .tool-chip-group button svg {
   width: 20px;
   height: 20px;
   display: block;
+}
+
+.tool-chip-group button img {
+  width: 20px;
+  height: 20px;
+  display: block;
+}
+
+.tool-icon-asset {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
 }
 
 .tool-button-copy {
