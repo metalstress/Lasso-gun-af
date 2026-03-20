@@ -113,7 +113,6 @@ const CLOSED_TOOLBAR_TOOLTIP = { isOpen: false, x: 0, y: 0, label: '', hotkey: '
 const TOOLTIP_DELAY_MS = 500;
 const HISTORY_LIMIT = 100;
 const PRESET_SHAPE_SQUARE = 'square';
-const PRESET_SHAPE_STAR = 'star';
 const PRESET_SHAPE_POLYGON = 'polygon';
 const DEFAULT_POLYGON_SIDES = 3;
 const MAX_POLYGON_SIDES = 32;
@@ -121,8 +120,7 @@ const DESTROY_BRUSH_STEPS = [2, 4, 6, 8, 12, 24, 32];
 const DEFAULT_DESTROY_BRUSH_CELLS = 8;
 const PRESET_SHAPE_OPTIONS = [
   { value: PRESET_SHAPE_SQUARE, label: 'Square' },
-  { value: PRESET_SHAPE_STAR, label: 'Star' },
-  { value: PRESET_SHAPE_POLYGON, label: 'Polygon' },
+  { value: PRESET_SHAPE_POLYGON, label: 'Triangle' },
 ];
 const CORNER_TYPE_OPTIONS = [
   { value: CORNER_TYPE_ROUND, label: 'Round' },
@@ -461,14 +459,6 @@ function App() {
             event.preventDefault();
             hideToolbarTooltip();
             handleInsertPresetShape(PRESET_SHAPE_SQUARE);
-            return;
-          case 'KeyY':
-            if (isOverlayOpen) {
-              return;
-            }
-            event.preventDefault();
-            hideToolbarTooltip();
-            handleInsertPresetShape(PRESET_SHAPE_STAR);
             return;
           case 'KeyN':
             if (isOverlayOpen) {
@@ -3245,44 +3235,38 @@ function ShapePresetDropdown({
               tooltipProps={getTooltipProps('Square', 'R')}
             />
             <ShapePresetOption
-              icon={<StarShapeIcon />}
-              isActive={currentShape === PRESET_SHAPE_STAR}
-              label="Star"
-              hotkey="Y"
-              onClick={() => onInsertShape(PRESET_SHAPE_STAR)}
-              tooltipProps={getTooltipProps('Star', 'Y')}
-            />
-            <ShapePresetOption
-              icon={<PolygonShapeIcon sides={polygonSides} />}
+              icon={<PolygonShapeIcon sides={DEFAULT_POLYGON_SIDES} />}
               isActive={currentShape === PRESET_SHAPE_POLYGON}
-              label="Polygon"
+              label="Triangle"
               hotkey="N"
               onClick={() => onInsertShape(PRESET_SHAPE_POLYGON)}
-              tooltipProps={getTooltipProps('Polygon', 'N')}
+              tooltipProps={getTooltipProps('Triangle / Polygon', 'N')}
             />
           </div>
 
-          <label className="shape-preset-sides">
-            <span className="shape-preset-meta">Sides</span>
-            <div className="shape-preset-sides-row">
-              <input
-                type="range"
-                min={String(DEFAULT_POLYGON_SIDES)}
-                max={String(MAX_POLYGON_SIDES)}
-                step="1"
-                value={polygonSides}
-                onChange={onPolygonSidesChange}
-              />
-              <input
-                className="shape-preset-sides-input"
-                type="number"
-                min={String(DEFAULT_POLYGON_SIDES)}
-                max={String(MAX_POLYGON_SIDES)}
-                value={polygonSides}
-                onChange={onPolygonSidesChange}
-              />
-            </div>
-          </label>
+          {currentShape === PRESET_SHAPE_POLYGON ? (
+            <label className="shape-preset-sides">
+              <span className="shape-preset-meta">Sides</span>
+              <div className="shape-preset-sides-row">
+                <input
+                  type="range"
+                  min={String(DEFAULT_POLYGON_SIDES)}
+                  max={String(MAX_POLYGON_SIDES)}
+                  step="1"
+                  value={polygonSides}
+                  onChange={onPolygonSidesChange}
+                />
+                <input
+                  className="shape-preset-sides-input"
+                  type="number"
+                  min={String(DEFAULT_POLYGON_SIDES)}
+                  max={String(MAX_POLYGON_SIDES)}
+                  value={polygonSides}
+                  onChange={onPolygonSidesChange}
+                />
+              </div>
+            </label>
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -3645,10 +3629,6 @@ function AlignCenterYIcon() {
 }
 
 function ShapePresetIcon({ shape, sides = DEFAULT_POLYGON_SIDES }) {
-  if (shape === PRESET_SHAPE_STAR) {
-    return <StarShapeIcon />;
-  }
-
   if (shape === PRESET_SHAPE_POLYGON) {
     return <PolygonShapeIcon sides={sides} />;
   }
@@ -3660,20 +3640,6 @@ function SquareShapeIcon() {
   return (
     <svg viewBox="0 0 20 20" aria-hidden="true">
       <rect x="3" y="3" width="14" height="14" rx="0.6" fill="none" stroke="currentColor" strokeWidth="1.8" />
-    </svg>
-  );
-}
-
-function StarShapeIcon() {
-  return (
-    <svg viewBox="0 0 20 20" aria-hidden="true">
-      <path
-        d="m10 2.3 2.2 4.53 5 .73-3.6 3.5.85 4.94L10 13.65 5.55 16l.85-4.94-3.6-3.5 5-.73L10 2.3Z"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinejoin="round"
-      />
     </svg>
   );
 }
@@ -4181,6 +4147,15 @@ function getToolbarTooltipPosition(bounds) {
   };
 }
 
+function getPresetShapeLabel(config) {
+  if (config.kind === PRESET_SHAPE_POLYGON) {
+    const sides = normalizePolygonSides(config.sides, DEFAULT_POLYGON_SIDES);
+    return sides === DEFAULT_POLYGON_SIDES ? 'Triangle' : `${sides}-Sided Polygon`;
+  }
+
+  return PRESET_SHAPE_OPTIONS.find((option) => option.value === config.kind)?.label ?? 'Preset Shape';
+}
+
 function createPresetShape(config, surfaceSize) {
   const ring = createPresetRing(config, surfaceSize);
 
@@ -4189,8 +4164,7 @@ function createPresetShape(config, surfaceSize) {
   }
 
   return createShapeFromPolygons([[ring]], {
-    name:
-      PRESET_SHAPE_OPTIONS.find((option) => option.value === config.kind)?.label ?? 'Preset Shape',
+    name: getPresetShapeLabel(config),
     sourceMode: 'preset',
   });
 }
@@ -4212,10 +4186,6 @@ function createPresetRing(config, surfaceSize) {
     ];
   }
 
-  if (type === PRESET_SHAPE_STAR) {
-    return createStarRing(center, outerRadius, outerRadius * 0.48, 5);
-  }
-
   if (type === PRESET_SHAPE_POLYGON) {
     return createRegularPolygonRing(center, outerRadius, sides);
   }
@@ -4228,21 +4198,6 @@ function createRegularPolygonRing(center, radius, sides) {
 
   return Array.from({ length: safeSides }, (_, index) => {
     const angle = -Math.PI / 2 + (index / safeSides) * Math.PI * 2;
-    return {
-      x: center.x + Math.cos(angle) * radius,
-      y: center.y + Math.sin(angle) * radius,
-    };
-  });
-}
-
-function createStarRing(center, outerRadius, innerRadius, points) {
-  const safePoints = Math.max(3, Math.round(points));
-  const totalPoints = safePoints * 2;
-
-  return Array.from({ length: totalPoints }, (_, index) => {
-    const isOuter = index % 2 === 0;
-    const radius = isOuter ? outerRadius : innerRadius;
-    const angle = -Math.PI / 2 + (index / totalPoints) * Math.PI * 2;
     return {
       x: center.x + Math.cos(angle) * radius,
       y: center.y + Math.sin(angle) * radius,
