@@ -1923,6 +1923,7 @@ input[type="range"] {
   object-fit: contain;
   pointer-events: none;
   user-select: none;
+  transition: filter 160ms ease;
 }
 
 .tool-button-copy {
@@ -2185,6 +2186,10 @@ input[type="range"] {
 .tool-chip-group button.is-active:hover {
   background: #d2ff95;
   border-color: #d2ff95;
+}
+
+.tool-chip-group button.is-active .tool-icon-asset {
+  filter: brightness(0) saturate(100%);
 }
 
 .tool-separator {
