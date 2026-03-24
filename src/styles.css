@@ -88,13 +88,12 @@ button {
 
 .editor-layout {
   display: grid;
-  gap: 18px;
+  gap: 16px;
   min-height: calc(100vh - 36px);
-  grid-template-columns: minmax(240px, 280px) minmax(0, 1fr);
-  grid-template-areas:
-    "layers workspace"
-    "panel panel";
+  grid-template-columns: minmax(208px, 236px) minmax(0, 1fr) minmax(272px, 320px);
+  grid-template-areas: "layers workspace panel";
   align-items: start;
+  height: calc(100vh - 36px);
 }
 
 .layers-panel,
@@ -1132,8 +1131,18 @@ input[type="range"] {
   grid-area: workspace;
   position: relative;
   min-height: 0;
+  height: calc(100vh - 36px);
   isolation: isolate;
   overscroll-behavior: contain;
+}
+
+.layers-panel,
+.control-panel {
+  position: sticky;
+  top: 18px;
+  max-height: calc(100vh - 36px);
+  overflow: auto;
+  min-height: 0;
 }
 
 .app-shell.crt-soft .workspace::before,
@@ -2804,14 +2813,26 @@ input[type="range"] {
   }
 }
 
+@media (min-width: 1280px) {
+  .editor-layout {
+    gap: 18px;
+    grid-template-columns: minmax(220px, 256px) minmax(0, 1fr) minmax(296px, 360px);
+  }
+}
+
 @media (min-width: 1500px) {
   .editor-layout {
-    grid-template-columns: minmax(250px, 290px) minmax(0, 1.45fr) minmax(360px, 440px);
-    grid-template-areas: "layers workspace panel";
-    align-items: start;
-    height: calc(100vh - 36px);
+    grid-template-columns: minmax(240px, 280px) minmax(0, 1.24fr) minmax(320px, 396px);
   }
+}
 
+@media (min-width: 1760px) {
+  .editor-layout {
+    grid-template-columns: minmax(250px, 290px) minmax(0, 1.45fr) minmax(360px, 440px);
+  }
+}
+
+@media (min-width: 1500px) {
   .workspace {
     grid-area: workspace;
     height: calc(100vh - 36px);
