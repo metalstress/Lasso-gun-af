@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { Analytics } from '@vercel/analytics/react';
 import afCatLogo from './assets/af-cat.svg';
 import classicPolyIcon from './assets/tool-icons/classic-poly.svg';
 import drawToolIcon from './assets/tool-icons/draw.svg';
@@ -3107,6 +3108,7 @@ function App() {
         onThemePresetChange={handleThemePresetChange}
         theme={theme}
       />
+      <Analytics />
     </div>
   );
 }
